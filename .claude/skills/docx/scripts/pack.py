@@ -5,11 +5,14 @@ Validates with auto-repair, condenses XML formatting, and creates the DOCX.
 """
 
 import argparse
+import os
 import shutil
 import sys
 import tempfile
 import zipfile
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import defusedxml.minidom
 

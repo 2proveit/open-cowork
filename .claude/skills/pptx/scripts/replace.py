@@ -10,9 +10,12 @@ unless "paragraphs" is specified in the replacements for that shape.
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from inventory import InventoryData, extract_text_inventory
 from pptx import Presentation

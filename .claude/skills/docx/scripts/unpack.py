@@ -6,9 +6,12 @@ with identical formatting (enabled by default).
 """
 
 import argparse
+import os
 import sys
 import zipfile
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import defusedxml.minidom
 from helpers.merge_runs import merge_runs as do_merge_runs

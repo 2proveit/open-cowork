@@ -41,10 +41,13 @@ Examples:
 """
 
 import argparse
+import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from inventory import extract_text_inventory
 from PIL import Image, ImageDraw, ImageFont
