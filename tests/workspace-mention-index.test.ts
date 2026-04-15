@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createWorkspaceMentionIndex } from '../src/main/utils/workspace-mention-index';
+import { isWorkspaceSearchExcludedPath } from '../src/shared/workspace-file-search';
 
 const tempDirs: string[] = [];
 
@@ -43,5 +44,31 @@ describe('createWorkspaceMentionIndex', () => {
       relativePath: path.join('docs', 'chat-guides', 'notes.md'),
       source: 'workspace',
     });
+  });
+
+  it('excludes files inside configured cache and metadata directories', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workspace-mention-index-'));
+    tempDirs.push(root);
+
+    await fs.mkdir(path.join(root, 'src', 'keep'), { recursive: true });
+    await fs.mkdir(path.join(root, 'node_modules', 'pkg'), { recursive: true });
+    await fs.mkdir(path.join(root, '.git', 'objects'), { recursive: true });
+    await fs.mkdir(path.join(root, '.cowork-user-data', 'cache'), { recursive: true });
+
+    await fs.writeFile(path.join(root, 'src', 'keep', 'chat-keep.ts'), 'ok', 'utf-8');
+    await fs.writeFile(path.join(root, 'node_modules', 'pkg', 'chat-dep.ts'), 'dep', 'utf-8');
+    await fs.writeFile(path.join(root, '.git', 'objects', 'chat-blob'), 'blob', 'utf-8');
+    await fs.writeFile(path.join(root, '.cowork-user-data', 'cache', 'chat.tmp'), 'tmp', 'utf-8');
+
+    const index = await createWorkspaceMentionIndex(root);
+    const results = index.search('chat');
+
+    expect(results.map((item) => item.relativePath)).toEqual(['src/keep/chat-keep.ts']);
+    expect(
+      isWorkspaceSearchExcludedPath(path.join(root, 'node_modules', 'pkg', 'chat-dep.ts'))
+    ).toBe(true);
+    expect(isWorkspaceSearchExcludedPath(path.join(root, 'src', 'keep', 'chat-keep.ts'))).toBe(
+      false
+    );
   });
 });

@@ -14,7 +14,7 @@
  */
 import { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, Tray } from 'electron';
 import chokidar, { type FSWatcher } from 'chokidar';
-import { join, resolve, dirname, isAbsolute, basename } from 'path';
+import { join, resolve, dirname, isAbsolute, basename, relative } from 'path';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
 import { config } from 'dotenv';
@@ -91,7 +91,10 @@ import {
 import { buildDiagnosticsSummary } from './utils/diagnostics-summary';
 import { isPathWithinRoot } from './tools/path-containment';
 import { listWorkspaceChildren } from './workspace-files';
-import type { WorkspaceFileSearchResult } from '../shared/workspace-file-search';
+import {
+  isWorkspaceSearchExcludedPath,
+  type WorkspaceFileSearchResult,
+} from '../shared/workspace-file-search';
 
 // Current workspace path for the app shell and new-session defaults
 let currentWorkingDir: string | null = null;
@@ -125,7 +128,7 @@ let workspaceMentionIndex: WorkspaceMentionIndex | null = null;
 let workspaceMentionIndexRoot: string | null = null;
 let workspaceMentionIndexPromise: Promise<WorkspaceMentionIndex> | null = null;
 let workspaceMentionIndexGeneration = 0;
-const WORKSPACE_FILE_SEARCH_MAX_RESULTS = 200;
+const WORKSPACE_FILE_SEARCH_MAX_RESULTS = 50;
 
 function sanitizeDiagnosticBaseUrl(value: string | undefined): string | null {
   if (!value) {
@@ -585,8 +588,16 @@ function startWorkspaceWatcher(): void {
   }
 
   try {
-    workspaceWatcher = chokidar.watch(currentWorkingDir, {
+    const workspaceRoot = currentWorkingDir;
+    workspaceWatcher = chokidar.watch(workspaceRoot, {
       ignoreInitial: true,
+      ignored: (watchedPath) => {
+        const relativePath = relative(workspaceRoot, watchedPath);
+        if (!relativePath || relativePath.startsWith('..')) {
+          return false;
+        }
+        return isWorkspaceSearchExcludedPath(relativePath);
+      },
       awaitWriteFinish: {
         stabilityThreshold: 200,
         pollInterval: 100,

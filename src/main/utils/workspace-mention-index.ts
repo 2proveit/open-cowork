@@ -1,22 +1,19 @@
 import fs from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import path from 'node:path';
-import type { WorkspaceFileSearchResult } from '../../shared/workspace-file-search';
-
-const EXCLUDED_DIR_NAMES = new Set([
-  '.git',
-  'node_modules',
-  '.cowork-user-data',
-  '__pycache__',
-  '.pytest_cache',
-  '.mypy_cache',
-  '.ruff_cache',
-  '.turbo',
-]);
+import {
+  isWorkspaceSearchExcludedDirName,
+  type WorkspaceFileSearchResult,
+} from '../../shared/workspace-file-search';
 
 interface IndexedWorkspaceFile extends WorkspaceFileSearchResult {
   searchableName: string;
   searchableRelativePath: string;
+}
+
+interface RankedWorkspaceFile {
+  file: IndexedWorkspaceFile;
+  rank: { tier: number; position: number; nameLength: number; pathDepth: number };
 }
 
 export interface WorkspaceMentionIndex {
@@ -43,11 +40,8 @@ export async function createWorkspaceMentionIndex(
 
       return files
         .map((file) => ({ file, rank: rankFile(file, normalizedQuery) }))
-        .filter((entry) => entry.rank !== null)
+        .filter((entry): entry is RankedWorkspaceFile => entry.rank !== null)
         .sort((a, b) => {
-          if (!a.rank || !b.rank) {
-            return 0;
-          }
           if (a.rank.tier !== b.rank.tier) {
             return a.rank.tier - b.rank.tier;
           }
@@ -91,7 +85,7 @@ async function collectWorkspaceFiles(workspaceRoot: string): Promise<IndexedWork
       const absolutePath = path.join(current, entry.name);
 
       if (entry.isDirectory()) {
-        if (!EXCLUDED_DIR_NAMES.has(entry.name)) {
+        if (!isWorkspaceSearchExcludedDirName(entry.name)) {
           queue.push(absolutePath);
         }
         continue;
