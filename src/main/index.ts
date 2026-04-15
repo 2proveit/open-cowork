@@ -68,6 +68,7 @@ import {
   localPathFromFileUrl,
   decodePathSafely,
 } from '../shared/local-file-path';
+import { shouldBroadcastWorkspacePathChange } from '../shared/workspace-events';
 import { eventRequiresSessionManager } from './client-event-utils';
 import { getUnsupportedWorkspacePathReason } from './workspace-path-constraints';
 import { resolveInitialWorkspace } from './workspace-bootstrap';
@@ -715,10 +716,12 @@ async function setWorkingDir(
     startWorkspaceWatcher();
   }
 
-  sendToRenderer({
-    type: 'workdir.changed',
-    payload: { path: newDir },
-  });
+  if (shouldBroadcastWorkspacePathChange(sessionId)) {
+    sendToRenderer({
+      type: 'workdir.changed',
+      payload: { path: newDir },
+    });
+  }
 
   log(
     '[App] Working directory updated:',

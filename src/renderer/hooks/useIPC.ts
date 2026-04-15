@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import { useAppStore } from '../store';
+import { shouldReloadWorkspaceTree } from '../../shared/workspace-events';
 import type {
   AppConfig,
   ClientEvent,
@@ -265,7 +266,9 @@ export function useIPC() {
             break;
 
           case 'workspace.tree.changed':
-            store.bumpWorkspaceTreeVersion();
+            if (shouldReloadWorkspaceTree(event.payload.kind)) {
+              store.bumpWorkspaceTreeVersion();
+            }
             if (
               (event.payload.kind === 'unlink' || event.payload.kind === 'unlinkDir') &&
               store.openTabs.some((tab) => tab.path === event.payload.path)

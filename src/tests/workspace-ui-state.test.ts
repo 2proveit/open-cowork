@@ -64,4 +64,28 @@ describe('workspace and workbench state', () => {
     expect(state.activeTabPath).toBe('/repo/docs/plan.md');
     expect(state.draftContentByPath['/repo/docs/plan.md']).toBe('# Updated draft');
   });
+
+  it('preserves newer draft content when an earlier save completes', () => {
+    const store = useAppStore.getState();
+    store.openFileTab(
+      {
+        path: '/repo/docs/plan.md',
+        name: 'plan.md',
+        workspacePath: '/repo',
+        lastOpenedAt: 100,
+      },
+      '# Saved v1'
+    );
+
+    store.markFileSaving('/repo/docs/plan.md', true);
+    store.setFileDraft('/repo/docs/plan.md', '# Draft v2');
+    store.markFileSaved('/repo/docs/plan.md', '# Saved v1', 200);
+
+    const state = useAppStore.getState();
+    expect(state.draftContentByPath['/repo/docs/plan.md']).toBe('# Draft v2');
+    expect(state.savedContentByPath['/repo/docs/plan.md']).toBe('# Saved v1');
+    expect(state.dirtyByPath['/repo/docs/plan.md']).toBe(true);
+    expect(state.savingByPath['/repo/docs/plan.md']).toBe(false);
+    expect(state.lastSavedAtByPath['/repo/docs/plan.md']).toBe(200);
+  });
 });

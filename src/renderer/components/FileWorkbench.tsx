@@ -1,9 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, FileText, PencilLine, Save, X } from 'lucide-react';
 import { useAppStore } from '../store';
 import { MessageMarkdown } from './MessageMarkdown';
-import { saveWorkbenchFile } from '../utils/file-workbench';
+import {
+  getWorkbenchPreviewContent,
+  saveWorkbenchFile,
+  shouldAutosaveDraft,
+} from '../utils/file-workbench';
 
 export function FileWorkbench() {
   const { t } = useTranslation();
@@ -15,29 +19,39 @@ export function FileWorkbench() {
   const dirtyByPath = useAppStore((s) => s.dirtyByPath);
   const savingByPath = useAppStore((s) => s.savingByPath);
   const saveErrorByPath = useAppStore((s) => s.saveErrorByPath);
+  const lastSavedAtByPath = useAppStore((s) => s.lastSavedAtByPath);
   const setActiveTabPath = useAppStore((s) => s.setActiveTabPath);
   const closeFileTab = useAppStore((s) => s.closeFileTab);
   const setTabViewMode = useAppStore((s) => s.setTabViewMode);
   const setFileDraft = useAppStore((s) => s.setFileDraft);
+  const autosaveAttemptByPathRef = useRef<Record<string, string | undefined>>({});
   const activeTab = openTabs.find((tab) => tab.path === activeTabPath) || null;
-  const activeDraft = activeTabPath ? draftContentByPath[activeTabPath] || '' : '';
+  const activeDraft = activeTabPath ? draftContentByPath[activeTabPath] : undefined;
+  const activeDraftText = activeDraft ?? '';
   const activeSaved = activeTabPath ? savedContentByPath[activeTabPath] || '' : '';
   const activeMode = activeTabPath ? viewModeByPath[activeTabPath] || 'edit' : 'edit';
   const isDirty = activeTabPath ? dirtyByPath[activeTabPath] : false;
   const isSaving = activeTabPath ? savingByPath[activeTabPath] : false;
   const saveError = activeTabPath ? saveErrorByPath[activeTabPath] : null;
+  const activeLastSavedAt = activeTabPath ? lastSavedAtByPath[activeTabPath] : null;
 
   useEffect(() => {
-    if (!activeTabPath || !isDirty) {
+    const autosavePath = activeTabPath;
+    const lastAttemptedDraft = autosavePath
+      ? autosaveAttemptByPathRef.current[autosavePath]
+      : undefined;
+    if (!shouldAutosaveDraft(autosavePath, activeDraft, isDirty, isSaving, lastAttemptedDraft)) {
       return;
     }
 
+    const draftToSave = activeDraft;
     const timer = window.setTimeout(() => {
-      void saveWorkbenchFile(activeTabPath);
+      autosaveAttemptByPathRef.current[autosavePath] = draftToSave;
+      void saveWorkbenchFile(autosavePath, { mode: 'autosave' });
     }, 800);
 
     return () => window.clearTimeout(timer);
-  }, [activeDraft, activeTabPath, isDirty]);
+  }, [activeDraft, activeLastSavedAt, activeTabPath, isDirty, isSaving, saveError]);
 
   async function handleSave(path: string) {
     await saveWorkbenchFile(path);
@@ -156,14 +170,16 @@ export function FileWorkbench() {
             <div className="min-h-0 flex-1 overflow-hidden">
               {activeMode === 'edit' ? (
                 <textarea
-                  value={activeDraft}
+                  value={activeDraftText}
                   onChange={(event) => setFileDraft(activeTab.path, event.target.value)}
                   className="h-full w-full resize-none border-0 bg-transparent px-4 py-4 font-mono text-sm leading-6 text-text-primary outline-none"
                   spellCheck={false}
                 />
               ) : (
                 <div className="h-full overflow-y-auto px-5 py-5">
-                  <MessageMarkdown normalizedText={activeDraft || activeSaved} />
+                  <MessageMarkdown
+                    normalizedText={getWorkbenchPreviewContent(activeDraft, activeSaved)}
+                  />
                 </div>
               )}
             </div>

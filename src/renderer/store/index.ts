@@ -747,32 +747,36 @@ export const useAppStore = create<AppState>((set) => ({
       },
     })),
   markFileSaved: (path, content, savedAt) =>
-    set((state) => ({
-      draftContentByPath: {
-        ...state.draftContentByPath,
-        [path]: content,
-      },
-      savedContentByPath: {
-        ...state.savedContentByPath,
-        [path]: content,
-      },
-      dirtyByPath: {
-        ...state.dirtyByPath,
-        [path]: false,
-      },
-      savingByPath: {
-        ...state.savingByPath,
-        [path]: false,
-      },
-      saveErrorByPath: {
-        ...state.saveErrorByPath,
-        [path]: null,
-      },
-      lastSavedAtByPath: {
-        ...state.lastSavedAtByPath,
-        [path]: savedAt ?? Date.now(),
-      },
-    })),
+    set((state) => {
+      const currentDraft = state.draftContentByPath[path];
+      const nextDraft = currentDraft ?? content;
+      return {
+        draftContentByPath: {
+          ...state.draftContentByPath,
+          [path]: nextDraft,
+        },
+        savedContentByPath: {
+          ...state.savedContentByPath,
+          [path]: content,
+        },
+        dirtyByPath: {
+          ...state.dirtyByPath,
+          [path]: nextDraft !== content,
+        },
+        savingByPath: {
+          ...state.savingByPath,
+          [path]: false,
+        },
+        saveErrorByPath: {
+          ...state.saveErrorByPath,
+          [path]: null,
+        },
+        lastSavedAtByPath: {
+          ...state.lastSavedAtByPath,
+          [path]: savedAt ?? Date.now(),
+        },
+      };
+    }),
   resetWorkbench: () =>
     set({
       openTabs: [],
