@@ -121,7 +121,10 @@ vi.mock('../src/main/claude/pi-model-resolution', () => ({
   },
 }));
 
-import { probeWithClaudeSdk } from '../src/main/claude/claude-sdk-one-shot';
+import {
+  generateTextWithClaudeSdk,
+  probeWithClaudeSdk,
+} from '../src/main/claude/claude-sdk-one-shot';
 
 function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -161,6 +164,17 @@ describe('probeWithClaudeSdk', () => {
     mocks.completeSimple.mockResolvedValue({
       content: [{ type: 'text', text: 'sdk_probe_ok' }],
     });
+  });
+
+  it('returns plain text for generic one-shot calls', async () => {
+    mocks.completeSimple.mockResolvedValue({
+      stopReason: 'end_turn',
+      errorMessage: '',
+      content: [{ type: 'text', text: 'structured json text' }],
+    });
+
+    const text = await generateTextWithClaudeSdk('prompt', 'system', createConfig());
+    expect(text).toBe('structured json text');
   });
 
   it('does not fall back to saved api key when the draft explicitly clears it', async () => {
