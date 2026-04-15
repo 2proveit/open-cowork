@@ -68,6 +68,22 @@ describe('serializeComposerValue', () => {
       { type: 'text', text: 'Done' },
     ]);
   });
+
+  it('normalizes relativized file mention display paths to POSIX separators', () => {
+    const windowsFileMention: FileMentionContent = {
+      type: 'file_mention',
+      path: 'C:\\workspace\\src\\renderer\\index.ts',
+      name: 'index.ts',
+      workspacePath: 'C:\\workspace',
+      source: 'workspace',
+    };
+
+    const result = serializeComposerValue({
+      segments: [{ type: 'file_mention', mention: windowsFileMention }],
+    });
+
+    expect(result.displayText).toBe('@src/renderer/index.ts');
+  });
 });
 
 describe('removeSegmentAtCursor', () => {
@@ -91,6 +107,52 @@ describe('removeSegmentAtCursor', () => {
       { type: 'text', text: 'A' },
       { type: 'text', text: 'B' },
     ]);
+    expect(result.removed).toBe(true);
+    expect(result.cursor).toEqual({ segmentIndex: 1, offset: 0 });
+  });
+
+  it('removes an atomic mention chip when deleting forward at chip boundary', () => {
+    const skillMention: SkillMentionContent = {
+      type: 'skill_mention',
+      skillId: 'brainstorming',
+      name: 'brainstorming',
+    };
+    const segments: ComposerSegment[] = [
+      { type: 'text', text: 'A' },
+      { type: 'skill_mention', mention: skillMention },
+      { type: 'text', text: 'B' },
+    ];
+
+    const result = removeSegmentAtCursor(segments, { segmentIndex: 1, offset: 0 }, 'forward');
+
+    expect(result.segments).toEqual([
+      { type: 'text', text: 'A' },
+      { type: 'text', text: 'B' },
+    ]);
+    expect(result.removed).toBe(true);
+    expect(result.cursor).toEqual({ segmentIndex: 1, offset: 0 });
+  });
+
+  it('supports caret at document end and removes trailing atomic segment on backward delete', () => {
+    const fileMention: FileMentionContent = {
+      type: 'file_mention',
+      path: 'README.md',
+      name: 'README.md',
+      workspacePath: '/workspace',
+      source: 'recent',
+    };
+    const segments: ComposerSegment[] = [
+      { type: 'text', text: 'A' },
+      { type: 'file_mention', mention: fileMention },
+    ];
+
+    const result = removeSegmentAtCursor(
+      segments,
+      { segmentIndex: segments.length, offset: 0 },
+      'backward'
+    );
+
+    expect(result.segments).toEqual([{ type: 'text', text: 'A' }]);
     expect(result.removed).toBe(true);
     expect(result.cursor).toEqual({ segmentIndex: 1, offset: 0 });
   });

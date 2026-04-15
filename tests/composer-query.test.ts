@@ -17,6 +17,19 @@ describe('extractActiveMentionQuery', () => {
       replaceTo: 9,
     });
   });
+
+  it('allows slash in @ file mention queries but still ignores email-like tokens', () => {
+    const nestedPathQuery = 'open @src/renderer/composer';
+    const emailLike = 'contact dev@example.com';
+
+    expect(extractActiveMentionQuery(nestedPathQuery, nestedPathQuery.length)).toEqual({
+      marker: '@',
+      query: 'src/renderer/composer',
+      replaceFrom: 5,
+      replaceTo: 27,
+    });
+    expect(extractActiveMentionQuery(emailLike, emailLike.length)).toBeNull();
+  });
 });
 
 describe('applySuggestionNavigation', () => {

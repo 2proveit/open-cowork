@@ -1,6 +1,6 @@
 import type { ActiveMentionQuery } from './types';
 
-const MENTION_PATTERN = /(?:^|[\s([{])([@/])([^\s@/]*)$/;
+const MENTION_PATTERN = /(?:^|[\s([{])([@/])([^\s]*)$/;
 
 export function extractActiveMentionQuery(
   text: string,
@@ -16,6 +16,12 @@ export function extractActiveMentionQuery(
 
   const marker = match[1] as ActiveMentionQuery['marker'];
   const query = match[2] ?? '';
+  if (marker === '@' && query.includes('@')) {
+    return null;
+  }
+  if (marker === '/' && query.includes('/')) {
+    return null;
+  }
   const replaceTo = offset;
   const replaceFrom = replaceTo - query.length - 1;
 
