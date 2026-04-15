@@ -239,7 +239,7 @@ function normalizeMemoryMarkdown(content: string): string {
 
 function ensureManagedBlock(content: string): string {
   const analysis = analyzeManagedMarkers(content);
-  if (analysis.markerStatus === 'valid') {
+  if (analysis.hasValidManagedBlock) {
     return normalizeMemoryMarkdown(content);
   }
 
@@ -318,12 +318,22 @@ function parseManagedState(content: string): ManagedMemoryState {
 }
 
 function trimWithMarker(content: string, maxChars: number): string {
+  if (maxChars <= 0) {
+    return '';
+  }
+
   if (content.length <= maxChars) {
     return content;
   }
 
-  const usableChars = Math.max(0, maxChars - TRUNCATED_MARKER.length - 1);
-  return `${content.slice(0, usableChars).trimEnd()}\n${TRUNCATED_MARKER}`;
+  if (maxChars <= TRUNCATED_MARKER.length) {
+    return TRUNCATED_MARKER.slice(0, maxChars);
+  }
+
+  const usableChars = Math.max(0, maxChars - TRUNCATED_MARKER.length);
+  const head = content.slice(0, usableChars).trimEnd();
+  const combined = `${head}${TRUNCATED_MARKER}`;
+  return combined.length <= maxChars ? combined : combined.slice(0, maxChars);
 }
 
 export function ensureMemoryMarkdown(current?: string): string {
@@ -401,7 +411,7 @@ export function buildPromptMemoryText(
   const manualBudget = maxFileChars - prefix.length;
   const boundedManualNotes =
     manualBudget <= 0 ? '' : trimWithMarker(manualNotes, Math.max(0, manualBudget));
-  const fileBounded = `${prefix}${boundedManualNotes}`.trimEnd();
+  const fileBounded = trimWithMarker(`${prefix}${boundedManualNotes}`.trimEnd(), maxFileChars);
 
   return trimWithMarker(fileBounded, maxChars);
 }

@@ -192,4 +192,64 @@ describe('workspace-memory markdown helpers', () => {
     expect(parsed.metadata.hasManagedBlock).toBe(true);
     expect(parsed.metadata.hasValidManagedBlock).toBe(false);
   });
+
+  it('enforces maxFileChars even when managed prefix alone is longer', () => {
+    const markdown = renderMemoryMarkdown(
+      '# MEMORY\n\n## Manual Notes\nshort',
+      createManagedState()
+    );
+    const promptText = buildPromptMemoryText(markdown, {
+      maxChars: 500,
+      maxFileChars: 80,
+    });
+
+    expect(promptText.length).toBeLessThanOrEqual(80);
+  });
+
+  it('keeps a sensible managed block under multiple marker pairs', () => {
+    const malformed = [
+      '# MEMORY',
+      '',
+      '## Manual Notes',
+      'manual content',
+      '',
+      '<!-- COWORK:MANAGED:START -->',
+      '### User Profile',
+      '- keep-first',
+      '',
+      '### Habits And Preferences',
+      '- (empty)',
+      '',
+      '### Active Workstreams',
+      '- (empty)',
+      '',
+      '### Recent Session Summaries',
+      '- (empty)',
+      '<!-- COWORK:MANAGED:END -->',
+      '',
+      '<!-- COWORK:MANAGED:START -->',
+      '### User Profile',
+      '- drop-second',
+      '',
+      '### Habits And Preferences',
+      '- (empty)',
+      '',
+      '### Active Workstreams',
+      '- (empty)',
+      '',
+      '### Recent Session Summaries',
+      '- (empty)',
+      '<!-- COWORK:MANAGED:END -->',
+      '',
+    ].join('\n');
+
+    const parsed = parseMemoryMarkdown(malformed);
+    expect(parsed.metadata.markerStatus).toBe('multiple');
+    expect(parsed.metadata.hasValidManagedBlock).toBe(true);
+    expect(parsed.managed.userProfile).toEqual(['keep-first']);
+    expect(parsed.normalizedMarkdown).not.toContain('drop-second');
+    expect((parsed.normalizedMarkdown.match(/<!-- COWORK:MANAGED:START -->/g) ?? []).length).toBe(
+      1
+    );
+  });
 });
