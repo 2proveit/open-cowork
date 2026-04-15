@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { buildFreshSessionWorkspaceMemoryPrompt } from '../src/main/claude/workspace-memory-prompt';
 
 const agentRunnerPath = path.resolve(process.cwd(), 'src/main/claude/agent-runner.ts');
 const agentRunnerContent = readFileSync(agentRunnerPath, 'utf8');
@@ -112,8 +113,37 @@ describe('ClaudeAgentRunner pi-coding-agent integration', () => {
   });
 
   it('loads workspace memory for fresh sessions only', () => {
-    expect(agentRunnerContent).toContain('workspaceMemoryService.buildPromptMemory(effectiveCwd)');
-    expect(agentRunnerContent).toContain('<workspace_memory>');
-    expect(agentRunnerContent).toContain('More recent user instructions override it.');
+    expect(agentRunnerContent).toContain('buildFreshSessionWorkspaceMemoryPrompt({');
+    expect(agentRunnerContent).toContain('workspaceMemoryService: this.workspaceMemoryService');
+  });
+
+  it('builds workspace memory prompt for fresh sessions', () => {
+    const workspaceMemoryService = {
+      buildPromptMemory: vi.fn(() => '<workspace_memory>\nfoo\n</workspace_memory>'),
+    };
+
+    const prompt = buildFreshSessionWorkspaceMemoryPrompt({
+      isFreshSession: true,
+      effectiveCwd: '/tmp/workspace',
+      workspaceMemoryService,
+    });
+
+    expect(workspaceMemoryService.buildPromptMemory).toHaveBeenCalledWith('/tmp/workspace');
+    expect(prompt).toContain('<workspace_memory>');
+  });
+
+  it('does not hot-update workspace memory prompt for reused sessions', () => {
+    const workspaceMemoryService = {
+      buildPromptMemory: vi.fn(() => '<workspace_memory>\nbar\n</workspace_memory>'),
+    };
+
+    const prompt = buildFreshSessionWorkspaceMemoryPrompt({
+      isFreshSession: false,
+      effectiveCwd: '/tmp/workspace',
+      workspaceMemoryService,
+    });
+
+    expect(workspaceMemoryService.buildPromptMemory).not.toHaveBeenCalled();
+    expect(prompt).toBe('');
   });
 });

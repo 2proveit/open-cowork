@@ -1,7 +1,6 @@
 import type { AppConfig } from '../config/config-store';
 import { generateTextWithClaudeSdk } from '../claude/claude-sdk-one-shot';
 import type {
-  ManagedMemoryState,
   SessionMemorySummary,
   WorkspaceMemoryGenerationInput,
   WorkspaceMemoryGenerationResult,

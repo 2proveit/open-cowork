@@ -57,6 +57,7 @@ import { generateTitleWithClaudeSdk } from '../claude/claude-sdk-one-shot';
 import { buildScheduledTaskTitle } from '../../shared/schedule/task-title';
 import { WorkspaceMemoryService } from '../memory/workspace-memory-service';
 import { createModelBackedWorkspaceMemoryGenerator } from '../memory/workspace-memory-generator';
+import type { WorkspaceMemoryPromptService } from '../claude/workspace-memory-prompt';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
@@ -66,8 +67,8 @@ interface AgentRunner {
 
 export interface WorkspaceMemoryArchiveService {
   archiveSessionToMemory(input: { session: Session; messages: Message[] }): Promise<void>;
-  buildPromptMemory?(workspacePath: string): string;
 }
+type WorkspaceMemoryDependency = WorkspaceMemoryArchiveService & WorkspaceMemoryPromptService;
 
 const WORKSPACE_MOUNT_VIRTUAL_PATH = '/mnt/workspace';
 const TITLE_GENERATION_TIMEOUT_MS = 20000;
@@ -92,14 +93,14 @@ export class SessionManager {
   private sessionTitleAttempts: Set<string> = new Set();
   private titleGenerationTokens: Map<string, symbol> = new Map();
   private messageCache: Map<string, Message[]> = new Map();
-  private workspaceMemoryService: WorkspaceMemoryArchiveService;
+  private workspaceMemoryService: WorkspaceMemoryDependency;
   private static readonly MAX_CACHE_SIZE = 100;
 
   constructor(
     db: DatabaseInstance,
     sendToRenderer: (event: ServerEvent) => void,
     pluginRuntimeService?: PluginRuntimeService,
-    workspaceMemoryService: WorkspaceMemoryArchiveService = new WorkspaceMemoryService(
+    workspaceMemoryService: WorkspaceMemoryDependency = new WorkspaceMemoryService(
       createModelBackedWorkspaceMemoryGenerator(() => configStore.getAll())
     )
   ) {

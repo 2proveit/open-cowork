@@ -62,6 +62,10 @@ import {
 import { buildPiSessionRuntimeSignature } from './pi-session-runtime';
 import { ThinkTagStreamParser } from './think-tag-parser';
 import { fetchOllamaModelInfo } from '../config/ollama-api';
+import {
+  buildFreshSessionWorkspaceMemoryPrompt,
+  type WorkspaceMemoryPromptService,
+} from './workspace-memory-prompt';
 
 // Virtual workspace path shown to the model (hides real sandbox path)
 const VIRTUAL_WORKSPACE_PATH = '/workspace';
@@ -405,10 +409,6 @@ interface AgentRunnerOptions {
     toolUseId: string,
     command: string
   ) => Promise<string | null>;
-}
-
-interface WorkspaceMemoryPromptService {
-  buildPromptMemory(workspacePath: string): string;
 }
 
 interface CachedPiSession {
@@ -1865,16 +1865,12 @@ Tool routing:
       } else {
         // First query in this session — create new pi-coding-agent session
         // ResourceLoader + ModelRegistry only needed for session creation — skip on reuse
-        let workspaceMemoryPrompt = '';
-        if (this.workspaceMemoryService) {
-          workspaceMemoryPrompt = this.workspaceMemoryService.buildPromptMemory(effectiveCwd);
-        }
-        const hasWorkspaceMemoryTag = workspaceMemoryPrompt.includes('<workspace_memory>');
-        const coworkAppendPrompt = [
-          ...coworkPromptSections,
-          hasWorkspaceMemoryTag ? workspaceMemoryPrompt : '',
-          hasWorkspaceMemoryTag ? 'More recent user instructions override it.' : '',
-        ]
+        const workspaceMemoryPrompt = buildFreshSessionWorkspaceMemoryPrompt({
+          isFreshSession: true,
+          effectiveCwd,
+          workspaceMemoryService: this.workspaceMemoryService,
+        });
+        const coworkAppendPrompt = [...coworkPromptSections, workspaceMemoryPrompt]
           .filter((section): section is string => Boolean(section && section.trim()))
           .join('\n\n');
 
