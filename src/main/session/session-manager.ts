@@ -66,6 +66,7 @@ interface AgentRunner {
 
 export interface WorkspaceMemoryArchiveService {
   archiveSessionToMemory(input: { session: Session; messages: Message[] }): Promise<void>;
+  buildPromptMemory?(workspacePath: string): string;
 }
 
 const WORKSPACE_MOUNT_VIRTUAL_PATH = '/mnt/workspace';
@@ -146,7 +147,9 @@ export class SessionManager {
       },
       this.pathResolver,
       this.mcpManager,
-      this.pluginRuntimeService
+      this.pluginRuntimeService,
+      undefined,
+      this.workspaceMemoryService
     );
   }
 

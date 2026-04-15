@@ -110,4 +110,10 @@ describe('ClaudeAgentRunner pi-coding-agent integration', () => {
     );
     expect(agentRunnerContent).toContain('START DOING IT');
   });
+
+  it('loads workspace memory for fresh sessions only', () => {
+    expect(agentRunnerContent).toContain('workspaceMemoryService.buildPromptMemory(effectiveCwd)');
+    expect(agentRunnerContent).toContain('<workspace_memory>');
+    expect(agentRunnerContent).toContain('More recent user instructions override it.');
+  });
 });

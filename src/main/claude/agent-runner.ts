@@ -407,6 +407,10 @@ interface AgentRunnerOptions {
   ) => Promise<string | null>;
 }
 
+interface WorkspaceMemoryPromptService {
+  buildPromptMemory(workspacePath: string): string;
+}
+
 interface CachedPiSession {
   session: PiAgentSession;
   modelId: string;
@@ -436,6 +440,7 @@ export class ClaudeAgentRunner {
   // @ts-expect-error stored for future plugin support
   private _pluginRuntimeService?: PluginRuntimeService;
   private _skillsAdapter?: SkillsAdapter;
+  private workspaceMemoryService?: WorkspaceMemoryPromptService;
   private activeControllers: Map<string, AbortController> = new Map();
   private piSessions: Map<string, CachedPiSession> = new Map();
   private static readonly MAX_CACHED_SESSIONS = 50;
@@ -706,7 +711,8 @@ ${hints.join('\n')}
     pathResolver: PathResolver,
     mcpManager?: MCPManager,
     pluginRuntimeService?: PluginRuntimeService,
-    skillsAdapter?: SkillsAdapter
+    skillsAdapter?: SkillsAdapter,
+    workspaceMemoryService?: WorkspaceMemoryPromptService
   ) {
     this.sendToRenderer = options.sendToRenderer;
     this.saveMessage = options.saveMessage;
@@ -715,6 +721,7 @@ ${hints.join('\n')}
     this.mcpManager = mcpManager;
     this._pluginRuntimeService = pluginRuntimeService;
     this._skillsAdapter = skillsAdapter;
+    this.workspaceMemoryService = workspaceMemoryService;
 
     log('[ClaudeAgentRunner] Initialized with pi-coding-agent SDK');
     log('[ClaudeAgentRunner] Skills enabled: settingSources=[user, project], Skill tool enabled');
@@ -1749,7 +1756,7 @@ This is an isolated sandbox environment. Use ${VIRTUAL_WORKSPACE_PATH} as the ro
             ? `<workspace_info>Your current workspace is: ${workingDir}</workspace_info>`
             : '';
 
-      const coworkAppendPrompt = [
+      const coworkPromptSections = [
         'You are an Open Cowork assistant. Be concise, accurate, and tool-capable.',
         `CRITICAL BEHAVIORAL RULES:
 1. CHAT FIRST: By default, respond to the user in plain text within the conversation. Do NOT create, write, or edit files unless the user explicitly asks you to (e.g., "create a file", "write this to...", "edit the code", "save as...", mentions a specific file path, or describes code changes they want applied). For questions, summaries, explanations, analysis, and general conversation — always reply directly in chat text.
@@ -1767,9 +1774,7 @@ Tool routing:
 - Use WebSearch/WebFetch only when Chrome MCP is unavailable or the user explicitly asks for generic web search.
 </tool_behavior>`,
         this.getBundledPathHints(),
-      ]
-        .filter((section): section is string => Boolean(section && section.trim()))
-        .join('\n\n');
+      ].filter((section): section is string => Boolean(section && section.trim()));
 
       logTiming('before pi-coding-agent session creation', runStartTime);
 
@@ -1860,6 +1865,19 @@ Tool routing:
       } else {
         // First query in this session — create new pi-coding-agent session
         // ResourceLoader + ModelRegistry only needed for session creation — skip on reuse
+        let workspaceMemoryPrompt = '';
+        if (this.workspaceMemoryService) {
+          workspaceMemoryPrompt = this.workspaceMemoryService.buildPromptMemory(effectiveCwd);
+        }
+        const hasWorkspaceMemoryTag = workspaceMemoryPrompt.includes('<workspace_memory>');
+        const coworkAppendPrompt = [
+          ...coworkPromptSections,
+          hasWorkspaceMemoryTag ? workspaceMemoryPrompt : '',
+          hasWorkspaceMemoryTag ? 'More recent user instructions override it.' : '',
+        ]
+          .filter((section): section is string => Boolean(section && section.trim()))
+          .join('\n\n');
+
         const { DefaultResourceLoader } = await import('@mariozechner/pi-coding-agent');
         const resourceLoader = new DefaultResourceLoader({
           cwd: effectiveCwd,
