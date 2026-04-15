@@ -29,34 +29,30 @@ interface WorkspaceMemoryPayload {
   recentSessionSummary: SessionMemorySummary;
 }
 
-function parseStringArray(value: unknown, field: string): string[] {
+function parseStringArray(value: unknown): string[] {
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
-    throw new Error(`Invalid workspace memory payload: ${field}`);
+    throw new Error('Invalid workspace memory payload shape');
   }
   return value;
 }
 
 function parseRecentSessionSummary(value: unknown): SessionMemorySummary {
   if (!value || typeof value !== 'object') {
-    throw new Error('Invalid workspace memory payload: recentSessionSummary');
+    throw new Error('Invalid workspace memory payload shape');
   }
   const summary = value as Record<string, unknown>;
   if (typeof summary.timestamp !== 'string' || typeof summary.summary !== 'string') {
-    throw new Error('Invalid workspace memory payload: recentSessionSummary');
+    throw new Error('Invalid workspace memory payload shape');
   }
-  if (
-    typeof summary.title !== 'undefined' &&
-    summary.title !== null &&
-    typeof summary.title !== 'string'
-  ) {
-    throw new Error('Invalid workspace memory payload: recentSessionSummary.title');
+  if (typeof summary.title !== 'undefined' && typeof summary.title !== 'string') {
+    throw new Error('Invalid workspace memory payload shape');
   }
 
   return {
     timestamp: summary.timestamp,
     title: typeof summary.title === 'string' ? summary.title : undefined,
     summary: summary.summary,
-    signals: parseStringArray(summary.signals, 'recentSessionSummary.signals'),
+    signals: parseStringArray(summary.signals),
   };
 }
 
@@ -74,17 +70,18 @@ function parsePayload(raw: string): WorkspaceMemoryGenerationResult {
 
   const data = payload as WorkspaceMemoryPayload;
   return {
-    userProfile: parseStringArray(data.userProfile, 'userProfile'),
-    habitsAndPreferences: parseStringArray(data.habitsAndPreferences, 'habitsAndPreferences'),
-    activeWorkstreams: parseStringArray(data.activeWorkstreams, 'activeWorkstreams'),
+    userProfile: parseStringArray(data.userProfile),
+    habitsAndPreferences: parseStringArray(data.habitsAndPreferences),
+    activeWorkstreams: parseStringArray(data.activeWorkstreams),
     recentSessionSummary: parseRecentSessionSummary(data.recentSessionSummary),
   };
 }
 
 function buildMemoryGenerationPrompt(input: WorkspaceMemoryGenerationInput): string {
   return [
-    '请根据现有托管记忆和最新会话，输出一个 JSON 对象。',
-    '仅输出 JSON，不要包含 Markdown 代码块或额外解释。',
+    '请根据现有托管记忆和最新会话，保守地输出一个 JSON 对象。',
+    '只输出 JSON，不要包含 Markdown 代码块或额外解释。',
+    '仅保留对协作有帮助的记忆信息；不要包含密钥、令牌、原始工具输出、无关噪声路径。',
     'JSON 结构必须为：',
     '{"userProfile": string[], "habitsAndPreferences": string[], "activeWorkstreams": string[], "recentSessionSummary": {"timestamp": string, "title"?: string, "summary": string, "signals": string[]}}',
     '',
@@ -96,8 +93,13 @@ function buildMemoryGenerationPrompt(input: WorkspaceMemoryGenerationInput): str
   ].join('\n');
 }
 
-const MEMORY_GENERATION_SYSTEM_PROMPT =
-  '你是工作区记忆生成器。合并历史托管信息和最新对话，返回结构化 JSON。';
+const MEMORY_GENERATION_SYSTEM_PROMPT = [
+  '你是工作区记忆生成器。',
+  '行为要求：保守抽取，只保留后续协作决策真正需要的事实。',
+  '只输出 JSON，不要输出任何额外文本。',
+  '不要包含密钥、令牌、原始工具输出、冗长日志、噪声路径或其他敏感细节。',
+  '不要包含原始工具输出。',
+].join(' ');
 
 export function createModelBackedWorkspaceMemoryGenerator(
   getConfig: () => AppConfig
