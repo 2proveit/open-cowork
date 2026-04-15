@@ -20,19 +20,22 @@ const MEMORY_FILE_NAME = 'MEMORY.md';
 const DEFAULT_PROMPT_MAX_CHARS = 4000;
 const DEFAULT_FILE_MAX_CHARS = 12000;
 const DEFAULT_RECENT_SUMMARY_LIMIT = 8;
+const DEFAULT_MANAGED_LIST_MAX_ITEMS = 32;
 
 interface ArchiveSessionToMemoryInput {
   session: Session;
   messages: Message[];
 }
 
-const ARRAY_KEYS = ['userProfile', 'habitsAndPreferences', 'activeWorkstreams'] as const;
-
 function normalizeMemoryItem(item: string): string {
   return item.trim();
 }
 
-function mergeUniqueItems(existing: string[], incoming: string[]): string[] {
+function mergeUniqueItems(
+  existing: string[],
+  incoming: string[],
+  preferIncoming = false
+): string[] {
   const merged: string[] = [];
   const seen = new Set<string>();
 
@@ -45,10 +48,12 @@ function mergeUniqueItems(existing: string[], incoming: string[]): string[] {
     merged.push(normalized);
   };
 
-  for (const item of existing) {
+  const first = preferIncoming ? incoming : existing;
+  const second = preferIncoming ? existing : incoming;
+  for (const item of first) {
     push(item);
   }
-  for (const item of incoming) {
+  for (const item of second) {
     push(item);
   }
 
@@ -70,7 +75,7 @@ function mergeRecentSessionSummaries(
 
   const deduped: SessionMemorySummary[] = [];
   const seen = new Set<string>();
-  for (const summary of [...existing, incoming]) {
+  for (const summary of [incoming, ...existing]) {
     const key = summaryKey(summary);
     if (seen.has(key)) {
       continue;
@@ -79,17 +84,21 @@ function mergeRecentSessionSummaries(
     deduped.push(summary);
   }
 
-  if (deduped.length <= maxItems) {
-    return deduped;
-  }
+  return deduped.slice(0, maxItems);
+}
 
-  return deduped.slice(deduped.length - maxItems);
+function capItems(items: string[], maxItems: number): string[] {
+  if (maxItems <= 0) {
+    return [];
+  }
+  return items.slice(0, maxItems);
 }
 
 function mergeManagedMemory(
   existing: ManagedMemoryState,
   generated: WorkspaceMemoryGenerationResult,
-  recentSummaryLimit: number
+  recentSummaryLimit: number,
+  managedListMaxItems: number
 ): ManagedMemoryState {
   const merged: ManagedMemoryState = {
     userProfile: existing.userProfile,
@@ -98,9 +107,18 @@ function mergeManagedMemory(
     recentSessionSummaries: existing.recentSessionSummaries,
   };
 
-  for (const key of ARRAY_KEYS) {
-    merged[key] = mergeUniqueItems(existing[key], generated[key]);
-  }
+  merged.userProfile = capItems(
+    mergeUniqueItems(existing.userProfile, generated.userProfile),
+    managedListMaxItems
+  );
+  merged.habitsAndPreferences = capItems(
+    mergeUniqueItems(existing.habitsAndPreferences, generated.habitsAndPreferences),
+    managedListMaxItems
+  );
+  merged.activeWorkstreams = capItems(
+    mergeUniqueItems(existing.activeWorkstreams, generated.activeWorkstreams, true),
+    managedListMaxItems
+  );
 
   merged.recentSessionSummaries = mergeRecentSessionSummaries(
     existing.recentSessionSummaries,
@@ -121,6 +139,7 @@ export class WorkspaceMemoryService {
   private readonly promptMaxChars: number;
   private readonly fileMaxChars: number;
   private readonly recentSummaryLimit: number;
+  private readonly managedListMaxItems: number;
 
   constructor(
     private readonly generator: WorkspaceMemoryGenerator,
@@ -129,6 +148,7 @@ export class WorkspaceMemoryService {
     this.promptMaxChars = options.promptMaxChars ?? DEFAULT_PROMPT_MAX_CHARS;
     this.fileMaxChars = options.fileMaxChars ?? DEFAULT_FILE_MAX_CHARS;
     this.recentSummaryLimit = options.recentSummaryLimit ?? DEFAULT_RECENT_SUMMARY_LIMIT;
+    this.managedListMaxItems = options.managedListMaxItems ?? DEFAULT_MANAGED_LIST_MAX_ITEMS;
   }
 
   async archiveSessionToMemory(input: ArchiveSessionToMemoryInput): Promise<void> {
@@ -147,11 +167,21 @@ export class WorkspaceMemoryService {
     }
 
     const parsed = parseMemoryMarkdown(currentMarkdown);
+    const sessionTurns = extractSessionMemoryText(input.messages);
+    if (sessionTurns.length === 0) {
+      return;
+    }
+
     const generated = await this.generator.generate({
       existingManaged: parsed.managed,
-      sessionTurns: extractSessionMemoryText(input.messages),
+      sessionTurns,
     });
-    const merged = mergeManagedMemory(parsed.managed, generated, this.recentSummaryLimit);
+    const merged = mergeManagedMemory(
+      parsed.managed,
+      generated,
+      this.recentSummaryLimit,
+      this.managedListMaxItems
+    );
     const nextMarkdown = renderMemoryMarkdown(parsed.normalizedMarkdown, merged);
     writeFileSafely(memoryFile, nextMarkdown);
   }
@@ -163,6 +193,9 @@ export class WorkspaceMemoryService {
     }
 
     const markdown = fs.readFileSync(memoryFile, 'utf8');
+    if (hasInvalidManagedMemoryMarkers(markdown)) {
+      return '';
+    }
     const promptMemory = buildPromptMemoryText(markdown, {
       maxChars: this.promptMaxChars,
       maxFileChars: this.fileMaxChars,

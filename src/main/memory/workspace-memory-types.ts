@@ -55,4 +55,5 @@ export interface WorkspaceMemoryServiceOptions {
   promptMaxChars?: number;
   fileMaxChars?: number;
   recentSummaryLimit?: number;
+  managedListMaxItems?: number;
 }
