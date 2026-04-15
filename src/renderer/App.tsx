@@ -11,10 +11,10 @@ import {
   useSandboxSetupState,
   useSandboxSyncStatus,
   usePendingDialogs,
+  useWorkingDir,
 } from './store/selectors';
 import { useIPC } from './hooks/useIPC';
 import { useWindowSize } from './hooks/useWindowSize';
-import { Sidebar } from './components/Sidebar';
 import { WelcomeView } from './components/WelcomeView';
 import { PermissionDialog } from './components/PermissionDialog';
 import { SudoPasswordDialog } from './components/SudoPasswordDialog';
@@ -23,15 +23,17 @@ import { SandboxSetupDialog } from './components/SandboxSetupDialog';
 import { SandboxSyncToast } from './components/SandboxSyncToast';
 import { GlobalNoticeToast } from './components/GlobalNoticeToast';
 import { PanelErrorBoundary } from './components/PanelErrorBoundary';
+import { WorkspacePanel } from './components/WorkspacePanel';
+import { FileWorkbench } from './components/FileWorkbench';
 import type { AppConfig } from './types';
 import type { GlobalNoticeAction } from './store';
 
 const ChatView = lazy(() =>
   import('./components/ChatView').then((module) => ({ default: module.ChatView }))
 );
-const ContextPanel = lazy(() =>
-  import('./components/ContextPanel').then((module) => ({ default: module.ContextPanel }))
-);
+// const ContextPanel = lazy(() =>
+//   import('./components/ContextPanel').then((module) => ({ default: module.ContextPanel }))
+// );
 const ConfigModal = lazy(() =>
   import('./components/ConfigModal').then((module) => ({ default: module.ConfigModal }))
 );
@@ -69,6 +71,7 @@ function App() {
     useSandboxSetupState();
   const sandboxSyncStatus = useSandboxSyncStatus();
   const { pendingPermission, pendingSudoPassword } = usePendingDialogs();
+  const workingDir = useWorkingDir();
 
   // Actions are still pulled directly from the store
   const setShowConfigModal = useAppStore((s) => s.setShowConfigModal);
@@ -165,6 +168,7 @@ function App() {
   // Determine if we should show the sandbox setup dialog
   // Show if there's progress and setup is not complete
   const showSandboxSetup = sandboxSetupProgress && !isSandboxSetupComplete;
+  const requiresWorkspaceSelection = !workingDir && !showSettings;
 
   return (
     <div className="h-full w-full min-h-0 flex flex-col overflow-hidden bg-background">
@@ -173,14 +177,17 @@ function App() {
 
       {/* Main Content */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
-        {/* Sidebar */}
-        <PanelErrorBoundary name="Sidebar" fallback={<div className="w-0" />}>
-          <Sidebar />
-        </PanelErrorBoundary>
+        {!requiresWorkspaceSelection && (
+          <PanelErrorBoundary name="WorkspacePanel" fallback={<div className="w-0" />}>
+            <WorkspacePanel />
+          </PanelErrorBoundary>
+        )}
 
         {/* Main Content Area */}
         <main className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden bg-background">
-          {showSettings ? (
+          {requiresWorkspaceSelection ? (
+            <WelcomeView />
+          ) : showSettings ? (
             <PanelErrorBoundary
               name="SettingsPanel"
               resetKey="settings"
@@ -206,15 +213,13 @@ function App() {
         </main>
 
         {/* Context Panel - only show when in session and not in settings */}
-        {activeSessionId && !showSettings && (
+        {!requiresWorkspaceSelection && (
           <PanelErrorBoundary
-            name="ContextPanel"
-            resetKey={activeSessionId}
+            name="FileWorkbench"
+            resetKey={activeSessionId || 'workbench'}
             fallback={<ContextPanelFallback />}
           >
-            <Suspense fallback={<ContextPanelFallback />}>
-              <ContextPanel />
-            </Suspense>
+            <FileWorkbench />
           </PanelErrorBoundary>
         )}
       </div>

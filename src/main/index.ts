@@ -13,6 +13,7 @@
  *               skills-manager, scheduled-task-manager, nav-server, remote-manager
  */
 import { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, Tray } from 'electron';
+import chokidar, { type FSWatcher } from 'chokidar';
 import { join, resolve, dirname, isAbsolute, basename } from 'path';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
@@ -69,6 +70,7 @@ import {
 } from '../shared/local-file-path';
 import { eventRequiresSessionManager } from './client-event-utils';
 import { getUnsupportedWorkspacePathReason } from './workspace-path-constraints';
+import { resolveInitialWorkspace } from './workspace-bootstrap';
 import {
   log,
   logWarn,
@@ -82,8 +84,10 @@ import {
 } from './utils/logger';
 import { listRecentWorkspaceFiles } from './utils/recent-workspace-files';
 import { buildDiagnosticsSummary } from './utils/diagnostics-summary';
+import { isPathWithinRoot } from './tools/path-containment';
+import { listWorkspaceChildren } from './workspace-files';
 
-// Current working directory (persisted between sessions)
+// Current workspace path for the app shell and new-session defaults
 let currentWorkingDir: string | null = null;
 
 // Load .env file from project root (for development)
@@ -110,6 +114,7 @@ let sessionManager: SessionManager | null = null;
 let skillsManager: SkillsManager | null = null;
 let pluginRuntimeService: PluginRuntimeService | null = null;
 let scheduledTaskManager: ScheduledTaskManager | null = null;
+let workspaceWatcher: FSWatcher | null = null;
 
 function sanitizeDiagnosticBaseUrl(value: string | undefined): string | null {
   if (!value) {
@@ -549,24 +554,81 @@ function createWindow() {
   });
 }
 
-/**
- * Initialize default working directory
- * This is always the app's default_working_dir in userData - it never changes
- * Each session can have its own cwd that differs from this default
- */
-function initializeDefaultWorkingDir(): string {
-  // Create default working directory in user data path (this is the permanent global default)
-  const userDataPath = app.getPath('userData');
-  const defaultDir = join(userDataPath, 'default_working_dir');
+function applyCurrentWorkingDir(nextPath: string | null): void {
+  currentWorkingDir = nextPath;
+  remoteManager.setDefaultWorkingDirectory(nextPath || undefined);
+}
 
-  if (!fs.existsSync(defaultDir)) {
-    fs.mkdirSync(defaultDir, { recursive: true });
-    log('[App] Created default working directory:', defaultDir);
+function stopWorkspaceWatcher(): void {
+  if (workspaceWatcher) {
+    void workspaceWatcher.close();
+    workspaceWatcher = null;
+  }
+}
+
+function startWorkspaceWatcher(): void {
+  stopWorkspaceWatcher();
+  if (!currentWorkingDir) {
+    return;
   }
 
-  currentWorkingDir = defaultDir;
+  try {
+    workspaceWatcher = chokidar.watch(currentWorkingDir, {
+      ignoreInitial: true,
+      depth: 8,
+      awaitWriteFinish: {
+        stabilityThreshold: 200,
+        pollInterval: 100,
+      },
+    });
+    workspaceWatcher.on('all', (kind, changedPath) => {
+      if (
+        kind !== 'add' &&
+        kind !== 'change' &&
+        kind !== 'unlink' &&
+        kind !== 'addDir' &&
+        kind !== 'unlinkDir'
+      ) {
+        return;
+      }
+      sendToRenderer({
+        type: 'workspace.tree.changed',
+        payload: {
+          kind,
+          path: changedPath,
+        },
+      });
+    });
+    workspaceWatcher.on('error', (error) => {
+      logError('[Workspace] Watcher failed:', error);
+    });
+  } catch (error) {
+    logError('[Workspace] Failed to start watcher:', error);
+  }
+}
 
-  log('[App] Global default working directory:', currentWorkingDir);
+/**
+ * Initialize the current workspace from persisted config.
+ * If the configured workspace is unavailable, the renderer will prompt the user
+ * to select a workspace before entering the normal app flow.
+ */
+function initializeCurrentWorkspace(): string | null {
+  const resolution = resolveInitialWorkspace({
+    persistedWorkspacePath: configStore.get('defaultWorkdir') || null,
+    platform: process.platform,
+    sandboxEnabled: configStore.get('sandboxEnabled') !== false,
+  });
+
+  applyCurrentWorkingDir(resolution.workspacePath);
+
+  if (resolution.requiresSelection) {
+    log('[App] No valid persisted workspace available:', resolution.reason || 'unknown');
+  } else {
+    log('[App] Restored persisted workspace:', resolution.workspacePath);
+  }
+
+  startWorkspaceWatcher();
+
   return currentWorkingDir;
 }
 
@@ -585,13 +647,43 @@ function getWorkspacePathUnsupportedReason(workspacePath?: string): string | nul
   });
 }
 
+function resolveWorkspaceDirectory(targetPath?: string): string {
+  if (!currentWorkingDir) {
+    throw new Error('No workspace selected');
+  }
+
+  const resolvedPath = resolve(targetPath || currentWorkingDir);
+  const caseInsensitive = process.platform === 'win32';
+  if (!isPathWithinRoot(resolvedPath, currentWorkingDir, caseInsensitive)) {
+    throw new Error('Path is outside the current workspace');
+  }
+
+  const stat = fs.statSync(resolvedPath);
+  if (!stat.isDirectory()) {
+    throw new Error('Workspace tree target must be a directory');
+  }
+
+  return resolvedPath;
+}
+
+function resolveWorkspaceFile(filePath: string): string {
+  if (!currentWorkingDir) {
+    throw new Error('No workspace selected');
+  }
+
+  const resolvedPath = resolve(filePath);
+  const caseInsensitive = process.platform === 'win32';
+  if (!isPathWithinRoot(resolvedPath, currentWorkingDir, caseInsensitive)) {
+    throw new Error('Path is outside the current workspace');
+  }
+
+  return resolvedPath;
+}
+
 /**
  * Set working directory
  * - If sessionId is provided: update only that session's cwd (for switching directories within a chat)
- * - If no sessionId: update UI display only (for WelcomeView - will be used when creating new session)
- *
- * Note: The global default (currentWorkingDir) is NEVER changed after initialization.
- * It is always app.getPath('userData')/default_working_dir
+ * - If no sessionId: update the current workspace and persist it for future launches
  */
 async function setWorkingDir(
   newDir: string,
@@ -615,19 +707,23 @@ async function setWorkingDir(
     SandboxSync.clearSession(sessionId);
     const { LimaSync } = await import('./sandbox/lima-sync');
     LimaSync.clearSession(sessionId);
+  } else {
+    const previousConfig = configStore.getAll();
+    configStore.update({ defaultWorkdir: newDir });
+    await syncConfigAfterMutation(previousConfig);
+    applyCurrentWorkingDir(newDir);
+    startWorkspaceWatcher();
   }
 
-  // Notify renderer of workdir change (for UI display)
-  // This updates what the user sees, and will be passed to startSession for new sessions
   sendToRenderer({
     type: 'workdir.changed',
     payload: { path: newDir },
   });
 
   log(
-    '[App] Working directory for UI updated:',
+    '[App] Working directory updated:',
     newDir,
-    sessionId ? `(session: ${sessionId})` : '(pending new session)'
+    sessionId ? `(session: ${sessionId})` : '(current workspace)'
   );
 
   return { success: true, path: newDir };
@@ -802,11 +898,9 @@ app
     log('  OPENAI_API_MODE:', process.env.OPENAI_API_MODE || '(default)');
     log('===========================');
 
-    // Initialize default working directory
-    initializeDefaultWorkingDir();
+    // Initialize current workspace from persisted config.
+    initializeCurrentWorkspace();
     log('Working directory:', currentWorkingDir);
-    // 远程会话默认使用全局工作目录
-    remoteManager.setDefaultWorkingDirectory(currentWorkingDir || undefined);
 
     // Initialize database
     const db = initDatabase();
@@ -932,11 +1026,12 @@ app
     const agentExecutor: AgentExecutor = {
       startSession: async (title, prompt, cwd) => {
         if (!sessionManager) throw new Error('Session manager not initialized');
-        const unsupportedReason = getWorkspacePathUnsupportedReason(cwd);
+        const effectiveCwd = cwd || currentWorkingDir || undefined;
+        const unsupportedReason = getWorkspacePathUnsupportedReason(effectiveCwd);
         if (unsupportedReason) {
           throw new Error(unsupportedReason);
         }
-        return sessionManager.startSession(title, prompt, cwd);
+        return sessionManager.startSession(title, prompt, effectiveCwd);
       },
       continueSession: async (sessionId, prompt, content, cwd) => {
         if (!sessionManager) throw new Error('Session manager not initialized');
@@ -2007,6 +2102,50 @@ ipcMain.handle('logs.getAll', () => {
   }
 });
 
+ipcMain.handle('workspace.tree.get', async (_event, targetPath?: string) => {
+  const dirPath = resolveWorkspaceDirectory(targetPath);
+  return listWorkspaceChildren(dirPath);
+});
+
+ipcMain.handle('workspace.file.read', async (_event, filePath: string) => {
+  const resolvedPath = resolveWorkspaceFile(filePath);
+  const content = await fs.promises.readFile(resolvedPath, 'utf-8');
+  return {
+    path: resolvedPath,
+    content,
+  };
+});
+
+ipcMain.handle(
+  'workspace.file.write',
+  async (_event, filePath: string, content: string, expectedContent?: string) => {
+    try {
+      const resolvedPath = resolveWorkspaceFile(filePath);
+      if (expectedContent !== undefined) {
+        const currentContent = await fs.promises.readFile(resolvedPath, 'utf-8');
+        if (currentContent !== expectedContent) {
+          return {
+            success: false,
+            conflict: true,
+            error: 'File contents changed on disk',
+          };
+        }
+      }
+
+      await fs.promises.writeFile(resolvedPath, content, 'utf-8');
+      return {
+        success: true,
+        savedAt: Date.now(),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to write file',
+      };
+    }
+  }
+);
+
 ipcMain.handle('logs.export', async () => {
   try {
     const logFiles = getAllLogFiles();
@@ -2602,7 +2741,10 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
       const dialogDefaultPath =
         event.payload.currentPath && isAbsolute(event.payload.currentPath)
           ? event.payload.currentPath
-          : currentWorkingDir || undefined;
+          : currentWorkingDir ||
+            configStore.get('defaultWorkdir') ||
+            app.getPath('home') ||
+            undefined;
       const workdirResult = await dialog.showOpenDialog(mainWindow!, {
         properties: ['openDirectory'],
         title: 'Select Working Directory',
