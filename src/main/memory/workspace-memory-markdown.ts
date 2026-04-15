@@ -1,5 +1,6 @@
 import type { Message } from '../../renderer/types';
 import type {
+  ManagedBlockParseMetadata,
   ManagedMemoryState,
   MemoryPromptBuildOptions,
   ParsedMemoryMarkdown,
@@ -20,6 +21,15 @@ const EMPTY_MANAGED_STATE: ManagedMemoryState = {
   recentSessionSummaries: [],
 };
 
+interface ManagedRange {
+  start: number;
+  end: number;
+}
+
+interface ManagedMarkerAnalysis extends ManagedBlockParseMetadata {
+  range: ManagedRange | null;
+}
+
 function normalizeNewlines(input: string): string {
   return input.replace(/\r\n/g, '\n');
 }
@@ -35,10 +45,10 @@ function renderRecentSummaries(summaries: SessionMemorySummary[]): string {
 
   return summaries
     .map((summary) => {
-      const lines = [
-        `#### ${summary.timestamp} | ${summary.title}`,
-        `- Summary: ${summary.summary}`,
-      ];
+      const heading = summary.title
+        ? `#### ${summary.timestamp} | ${summary.title}`
+        : `#### ${summary.timestamp}`;
+      const lines = [heading, `- Summary: ${summary.summary}`];
 
       if (summary.signals.length > 0) {
         lines.push('- Signals:');
@@ -73,41 +83,170 @@ function renderManagedBlock(state: ManagedMemoryState): string {
   ].join('\n');
 }
 
-function extractManagedBlock(content: string): string {
-  const startIndex = content.indexOf(MANAGED_START);
-  const endIndex = content.indexOf(MANAGED_END);
+function collectMarkerIndices(content: string, marker: string): number[] {
+  const indices: number[] = [];
+  let fromIndex = 0;
 
-  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+  while (fromIndex < content.length) {
+    const index = content.indexOf(marker, fromIndex);
+    if (index === -1) {
+      break;
+    }
+    indices.push(index);
+    fromIndex = index + marker.length;
+  }
+
+  return indices;
+}
+
+function analyzeManagedMarkers(content: string): ManagedMarkerAnalysis {
+  const starts = collectMarkerIndices(content, MANAGED_START);
+  const ends = collectMarkerIndices(content, MANAGED_END);
+  const startMarkerCount = starts.length;
+  const endMarkerCount = ends.length;
+  const hasManagedBlock = startMarkerCount > 0 || endMarkerCount > 0;
+
+  if (startMarkerCount === 0 && endMarkerCount === 0) {
+    return {
+      markerStatus: 'missing',
+      hasManagedBlock: false,
+      hasValidManagedBlock: false,
+      startMarkerCount,
+      endMarkerCount,
+      range: null,
+    };
+  }
+
+  if (startMarkerCount === 0 || endMarkerCount === 0) {
+    return {
+      markerStatus: 'incomplete',
+      hasManagedBlock,
+      hasValidManagedBlock: false,
+      startMarkerCount,
+      endMarkerCount,
+      range: null,
+    };
+  }
+
+  for (const start of starts) {
+    const end = ends.find((candidate) => candidate > start);
+    if (typeof end === 'number') {
+      const markerStatus = startMarkerCount === 1 && endMarkerCount === 1 ? 'valid' : 'multiple';
+      return {
+        markerStatus,
+        hasManagedBlock,
+        hasValidManagedBlock: true,
+        startMarkerCount,
+        endMarkerCount,
+        range: { start, end: end + MANAGED_END.length },
+      };
+    }
+  }
+
+  return {
+    markerStatus: 'reversed',
+    hasManagedBlock,
+    hasValidManagedBlock: false,
+    startMarkerCount,
+    endMarkerCount,
+    range: null,
+  };
+}
+
+function extractManagedBlock(content: string, analysis?: ManagedMarkerAnalysis): string {
+  const markerAnalysis = analysis ?? analyzeManagedMarkers(content);
+  if (!markerAnalysis.range) {
     return renderManagedBlock(EMPTY_MANAGED_STATE);
   }
 
-  return content.slice(startIndex, endIndex + MANAGED_END.length).trimEnd();
+  return content.slice(markerAnalysis.range.start, markerAnalysis.range.end).trimEnd();
 }
 
-function extractManualNotes(content: string): string {
+function extractManualNotes(content: string, analysis?: ManagedMarkerAnalysis): string {
   const headingIndex = content.indexOf(MANUAL_NOTES_HEADING);
   if (headingIndex === -1) {
     return '';
   }
 
+  const markerAnalysis = analysis ?? analyzeManagedMarkers(content);
   const bodyStart = headingIndex + MANUAL_NOTES_HEADING.length;
-  return content.slice(bodyStart).replace(/^\n+/, '').trimEnd();
+  let bodyEnd = content.length;
+  if (
+    markerAnalysis.range &&
+    markerAnalysis.range.start >= bodyStart &&
+    markerAnalysis.range.start < bodyEnd
+  ) {
+    bodyEnd = markerAnalysis.range.start;
+  }
+  if (!markerAnalysis.range && markerAnalysis.hasManagedBlock) {
+    const startIndex = content.indexOf(MANAGED_START, bodyStart);
+    const endIndex = content.indexOf(MANAGED_END, bodyStart);
+    const candidateEnds = [startIndex, endIndex].filter((index) => index >= 0);
+    if (candidateEnds.length > 0) {
+      bodyEnd = Math.min(...candidateEnds);
+    }
+  }
+
+  return content.slice(bodyStart, bodyEnd).replace(/^\n+/, '').trimEnd();
+}
+
+function stripMarkerLines(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trim();
+      return trimmed !== MANAGED_START && trimmed !== MANAGED_END;
+    })
+    .join('\n')
+    .trim();
+}
+
+function ensureStructure(current?: string): string {
+  let content = normalizeNewlines(current ?? '').trim();
+
+  if (!content) {
+    content = MEMORY_TITLE;
+  }
+  if (!content.includes(MEMORY_TITLE)) {
+    content = `${MEMORY_TITLE}\n\n${content}`.trim();
+  }
+  if (!content.includes(MANUAL_NOTES_HEADING)) {
+    content = `${content}\n\n${MANUAL_NOTES_HEADING}\n`;
+  }
+
+  return content.trimEnd() + '\n';
+}
+
+function composeMemoryMarkdown(manualNotes: string, managedBlock: string): string {
+  const normalizedManualNotes = stripMarkerLines(manualNotes);
+  const manualSection = normalizedManualNotes
+    ? `${MANUAL_NOTES_HEADING}\n${normalizedManualNotes}`
+    : `${MANUAL_NOTES_HEADING}`;
+
+  return [MEMORY_TITLE, '', manualSection, '', managedBlock]
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimEnd()
+    .concat('\n');
+}
+
+function normalizeMemoryMarkdown(content: string): string {
+  const analysis = analyzeManagedMarkers(content);
+  const manualNotes = extractManualNotes(content, analysis);
+  const managedBlock = extractManagedBlock(content, analysis);
+  return composeMemoryMarkdown(manualNotes, managedBlock);
 }
 
 function ensureManagedBlock(content: string): string {
-  if (content.includes(MANAGED_START) && content.includes(MANAGED_END)) {
-    return content;
+  const analysis = analyzeManagedMarkers(content);
+  if (analysis.markerStatus === 'valid') {
+    return normalizeMemoryMarkdown(content);
   }
 
-  const managedBlock = renderManagedBlock(EMPTY_MANAGED_STATE);
-  const manualHeadingIndex = content.indexOf(MANUAL_NOTES_HEADING);
-  if (manualHeadingIndex === -1) {
-    return `${content.trimEnd()}\n\n${managedBlock}\n`;
-  }
-
-  return `${content.slice(0, manualHeadingIndex).trimEnd()}\n\n${managedBlock}\n\n${content
-    .slice(manualHeadingIndex)
-    .trimStart()}`;
+  return composeMemoryMarkdown(
+    extractManualNotes(content, analysis),
+    renderManagedBlock(EMPTY_MANAGED_STATE)
+  );
 }
 
 function escapeRegExp(value: string): string {
@@ -144,7 +283,7 @@ function parseRecentSessionSummaries(section: string): SessionMemorySummary[] {
     const header = lines[0]?.replace(/^####\s+/, '') ?? '';
     const separatorIndex = header.indexOf(' | ');
     const timestamp = separatorIndex === -1 ? header : header.slice(0, separatorIndex).trim();
-    const title = separatorIndex === -1 ? '' : header.slice(separatorIndex + 3).trim();
+    const title = separatorIndex === -1 ? undefined : header.slice(separatorIndex + 3).trim();
     const summaryLine = lines.find((line) => line.startsWith('- Summary: '));
     const summary = summaryLine ? summaryLine.slice('- Summary: '.length).trim() : '';
     const signals = lines
@@ -188,18 +327,7 @@ function trimWithMarker(content: string, maxChars: number): string {
 }
 
 export function ensureMemoryMarkdown(current?: string): string {
-  let content = normalizeNewlines(current ?? '').trim();
-
-  if (!content) {
-    content = MEMORY_TITLE;
-  }
-  if (!content.includes(MEMORY_TITLE)) {
-    content = `${MEMORY_TITLE}\n\n${content}`.trim();
-  }
-  if (!content.includes(MANUAL_NOTES_HEADING)) {
-    content = `${content}\n\n${MANUAL_NOTES_HEADING}\n`;
-  }
-
+  const content = ensureStructure(current);
   return ensureManagedBlock(content).trimEnd() + '\n';
 }
 
@@ -217,10 +345,20 @@ export function renderMemoryMarkdown(
 }
 
 export function parseMemoryMarkdown(markdown: string | undefined): ParsedMemoryMarkdown {
-  const ensured = ensureMemoryMarkdown(markdown);
+  const structured = ensureStructure(markdown);
+  const metadata = analyzeManagedMarkers(structured);
+  const ensured = ensureManagedBlock(structured);
   return {
-    manualNotes: extractManualNotes(ensured),
+    manualNotes: extractManualNotes(ensured, analyzeManagedMarkers(ensured)),
     managed: parseManagedState(ensured),
+    metadata: {
+      markerStatus: metadata.markerStatus,
+      hasManagedBlock: metadata.hasManagedBlock,
+      hasValidManagedBlock: metadata.hasValidManagedBlock,
+      startMarkerCount: metadata.startMarkerCount,
+      endMarkerCount: metadata.endMarkerCount,
+    },
+    normalizedMarkdown: ensured,
   };
 }
 
@@ -254,12 +392,16 @@ export function buildPromptMemoryText(
   options: MemoryPromptBuildOptions
 ): string {
   const { maxChars, maxFileChars } = options;
-  const ensured = trimWithMarker(ensureMemoryMarkdown(markdown), maxFileChars);
-  const managedBlock = extractManagedBlock(ensured);
-  const manualNotes = extractManualNotes(ensured);
-  const prompt = [MEMORY_TITLE, '', managedBlock, '', MANUAL_NOTES_HEADING, manualNotes]
-    .join('\n')
-    .trimEnd();
+  const ensured = ensureMemoryMarkdown(markdown);
+  const analysis = analyzeManagedMarkers(ensured);
+  const managedBlock = extractManagedBlock(ensured, analysis);
+  const manualNotes = extractManualNotes(ensured, analysis);
 
-  return trimWithMarker(prompt, maxChars);
+  const prefix = [MEMORY_TITLE, '', managedBlock, '', MANUAL_NOTES_HEADING].join('\n') + '\n';
+  const manualBudget = maxFileChars - prefix.length;
+  const boundedManualNotes =
+    manualBudget <= 0 ? '' : trimWithMarker(manualNotes, Math.max(0, manualBudget));
+  const fileBounded = `${prefix}${boundedManualNotes}`.trimEnd();
+
+  return trimWithMarker(fileBounded, maxChars);
 }

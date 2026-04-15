@@ -100,4 +100,96 @@ describe('workspace-memory markdown helpers', () => {
     expect(promptText).toContain('### User Profile');
     expect(promptText).toContain('[truncated]');
   });
+
+  it('stops manual notes parsing before managed block in normal layout', () => {
+    const current = [
+      '# MEMORY',
+      '',
+      '## Manual Notes',
+      'manual-1',
+      'manual-2',
+      '',
+      '<!-- COWORK:MANAGED:START -->',
+      '### User Profile',
+      '- Managed line',
+      '',
+      '### Habits And Preferences',
+      '- (empty)',
+      '',
+      '### Active Workstreams',
+      '- (empty)',
+      '',
+      '### Recent Session Summaries',
+      '- (empty)',
+      '<!-- COWORK:MANAGED:END -->',
+      '',
+    ].join('\n');
+
+    const parsed = parseMemoryMarkdown(current);
+    expect(parsed.manualNotes).toContain('manual-1');
+    expect(parsed.manualNotes).toContain('manual-2');
+    expect(parsed.manualNotes).not.toContain('### User Profile');
+
+    const promptText = buildPromptMemoryText(current, {
+      maxChars: 4000,
+      maxFileChars: 4000,
+    });
+    expect((promptText.match(/<!-- COWORK:MANAGED:START -->/g) ?? []).length).toBe(1);
+    expect((promptText.match(/<!-- COWORK:MANAGED:END -->/g) ?? []).length).toBe(1);
+  });
+
+  it('keeps real managed block when maxFileChars truncates long files', () => {
+    const managedState = createManagedState();
+    const withManaged = renderMemoryMarkdown('# MEMORY\n\n## Manual Notes\nseed', managedState);
+    const longMarkdown = withManaged.replace('seed', 'manual line\n'.repeat(2000));
+    const promptText = buildPromptMemoryText(longMarkdown, {
+      maxChars: 4000,
+      maxFileChars: 320,
+    });
+
+    expect(promptText).toContain('Prefers direct implementation over long discussion.');
+    expect(promptText).not.toContain('- (empty)');
+  });
+
+  it('surfaces reversed markers and normalizes on render', () => {
+    const malformed = [
+      '# MEMORY',
+      '',
+      '## Manual Notes',
+      'manual content',
+      '',
+      '<!-- COWORK:MANAGED:END -->',
+      'broken',
+      '<!-- COWORK:MANAGED:START -->',
+      '',
+    ].join('\n');
+
+    const parsed = parseMemoryMarkdown(malformed);
+    expect(parsed.metadata.markerStatus).toBe('reversed');
+    expect(parsed.metadata.hasValidManagedBlock).toBe(false);
+
+    const rendered = renderMemoryMarkdown(malformed, createManagedState());
+    expect((rendered.match(/<!-- COWORK:MANAGED:START -->/g) ?? []).length).toBe(1);
+    expect((rendered.match(/<!-- COWORK:MANAGED:END -->/g) ?? []).length).toBe(1);
+    expect(rendered).toContain('manual content');
+    expect(rendered).not.toContain('broken');
+  });
+
+  it('surfaces incomplete marker pairs in parse metadata', () => {
+    const malformed = [
+      '# MEMORY',
+      '',
+      '## Manual Notes',
+      'manual content',
+      '',
+      '<!-- COWORK:MANAGED:START -->',
+      'no end marker',
+      '',
+    ].join('\n');
+
+    const parsed = parseMemoryMarkdown(malformed);
+    expect(parsed.metadata.markerStatus).toBe('incomplete');
+    expect(parsed.metadata.hasManagedBlock).toBe(true);
+    expect(parsed.metadata.hasValidManagedBlock).toBe(false);
+  });
 });
