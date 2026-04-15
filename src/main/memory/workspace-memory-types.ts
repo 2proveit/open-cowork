@@ -38,3 +38,21 @@ export interface SessionMemoryTextItem {
   role: 'user' | 'assistant';
   text: string;
 }
+
+export interface WorkspaceMemoryGenerationInput {
+  existingManaged: ManagedMemoryState;
+  sessionTurns: SessionMemoryTextItem[];
+}
+
+export interface WorkspaceMemoryGenerationResult {
+  userProfile: string[];
+  habitsAndPreferences: string[];
+  activeWorkstreams: string[];
+  recentSessionSummary: SessionMemorySummary;
+}
+
+export interface WorkspaceMemoryServiceOptions {
+  promptMaxChars?: number;
+  fileMaxChars?: number;
+  recentSummaryLimit?: number;
+}

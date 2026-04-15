@@ -3,20 +3,9 @@ import { generateTextWithClaudeSdk } from '../claude/claude-sdk-one-shot';
 import type {
   ManagedMemoryState,
   SessionMemorySummary,
-  SessionMemoryTextItem,
+  WorkspaceMemoryGenerationInput,
+  WorkspaceMemoryGenerationResult,
 } from './workspace-memory-types';
-
-export interface WorkspaceMemoryGenerationInput {
-  existingManaged: ManagedMemoryState;
-  sessionTurns: SessionMemoryTextItem[];
-}
-
-export interface WorkspaceMemoryGenerationResult {
-  userProfile: string[];
-  habitsAndPreferences: string[];
-  activeWorkstreams: string[];
-  recentSessionSummary: SessionMemorySummary;
-}
 
 export interface WorkspaceMemoryGenerator {
   generate(input: WorkspaceMemoryGenerationInput): Promise<WorkspaceMemoryGenerationResult>;

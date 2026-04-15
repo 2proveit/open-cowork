@@ -415,3 +415,8 @@ export function buildPromptMemoryText(
 
   return trimWithMarker(fileBounded, maxChars);
 }
+
+export function hasInvalidManagedMemoryMarkers(markdown: string | undefined): boolean {
+  const metadata = parseMemoryMarkdown(markdown).metadata;
+  return metadata.hasManagedBlock && !metadata.hasValidManagedBlock;
+}
