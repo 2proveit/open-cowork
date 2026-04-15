@@ -55,6 +55,8 @@ import {
 } from './session-title-utils';
 import { generateTitleWithClaudeSdk } from '../claude/claude-sdk-one-shot';
 import { buildScheduledTaskTitle } from '../../shared/schedule/task-title';
+import { WorkspaceMemoryService } from '../memory/workspace-memory-service';
+import { createModelBackedWorkspaceMemoryGenerator } from '../memory/workspace-memory-generator';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
@@ -85,12 +87,16 @@ export class SessionManager {
   private sessionTitleAttempts: Set<string> = new Set();
   private titleGenerationTokens: Map<string, symbol> = new Map();
   private messageCache: Map<string, Message[]> = new Map();
+  private workspaceMemoryService: WorkspaceMemoryService;
   private static readonly MAX_CACHE_SIZE = 100;
 
   constructor(
     db: DatabaseInstance,
     sendToRenderer: (event: ServerEvent) => void,
-    pluginRuntimeService?: PluginRuntimeService
+    pluginRuntimeService?: PluginRuntimeService,
+    workspaceMemoryService = new WorkspaceMemoryService(
+      createModelBackedWorkspaceMemoryGenerator(() => configStore.getAll())
+    )
   ) {
     this.db = db;
     this.sendToRenderer = (event) => {
@@ -105,6 +111,7 @@ export class SessionManager {
     this.pathResolver = new PathResolver();
     this.sandboxAdapter = getSandboxAdapter();
     this.pluginRuntimeService = pluginRuntimeService;
+    this.workspaceMemoryService = workspaceMemoryService;
 
     // Initialize MCP Manager
     this.mcpManager = new MCPManager();
@@ -926,6 +933,21 @@ export class SessionManager {
       } catch (error) {
         logError('[SessionManager] Failed to cleanup sandbox:', error);
         // Continue with session deletion even if sandbox cleanup fails
+      }
+    }
+
+    const session = this.loadSession(sessionId);
+    if (session?.cwd) {
+      try {
+        await this.workspaceMemoryService.archiveSessionToMemory({
+          session,
+          messages: this.getMessages(sessionId),
+        });
+      } catch (error) {
+        logError(
+          '[SessionManager] Failed to archive workspace memory before session delete:',
+          error
+        );
       }
     }
 
