@@ -58,6 +58,8 @@ export type ContentBlock =
   | TextContent
   | ImageContent
   | FileAttachmentContent
+  | FileMentionContent
+  | SkillMentionContent
   | ToolUseContent
   | ToolResultContent
   | ThinkingContent;
@@ -83,6 +85,24 @@ export interface FileAttachmentContent {
   size: number;
   mimeType?: string;
   inlineDataBase64?: string;
+}
+
+export interface FileMentionContent {
+  type: 'file_mention';
+  path: string;
+  name: string;
+  workspacePath: string;
+  source: 'workspace' | 'recent' | 'open_tab';
+  line?: number;
+  column?: number;
+}
+
+export interface SkillMentionContent {
+  type: 'skill_mention';
+  skillId: string;
+  name: string;
+  description?: string;
+  path?: string;
 }
 
 export interface ToolUseContent {
