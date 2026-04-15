@@ -31,7 +31,12 @@ export type ComposerSegment =
   | ComposerSkillMentionSegment;
 
 export interface ComposerCursor {
+  // Caret boundary in the segment array. `0` is before the first segment,
+  // `segments.length` is the document end boundary (after the last segment).
   segmentIndex: number;
+  // Character offset only applies when `segmentIndex` points to a text segment.
+  // For atomic segments (`file_mention`, `skill_mention`, `line_break`) and
+  // end boundary (`segmentIndex === segments.length`), this must be `0`.
   offset: number;
 }
 

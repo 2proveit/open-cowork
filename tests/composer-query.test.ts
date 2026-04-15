@@ -30,6 +30,26 @@ describe('extractActiveMentionQuery', () => {
     });
     expect(extractActiveMentionQuery(emailLike, emailLike.length)).toBeNull();
   });
+
+  it('ignores trailing punctuation when extracting mention queries', () => {
+    const fileWithPunctuation = 'open @src/renderer),';
+    const skillWithPunctuation = 'run /brainstorming,';
+    const slashWithExtraSlash = 'run /a/b';
+
+    expect(extractActiveMentionQuery(fileWithPunctuation, fileWithPunctuation.length)).toEqual({
+      marker: '@',
+      query: 'src/renderer',
+      replaceFrom: 5,
+      replaceTo: 18,
+    });
+    expect(extractActiveMentionQuery(skillWithPunctuation, skillWithPunctuation.length)).toEqual({
+      marker: '/',
+      query: 'brainstorming',
+      replaceFrom: 4,
+      replaceTo: 18,
+    });
+    expect(extractActiveMentionQuery(slashWithExtraSlash, slashWithExtraSlash.length)).toBeNull();
+  });
 });
 
 describe('applySuggestionNavigation', () => {

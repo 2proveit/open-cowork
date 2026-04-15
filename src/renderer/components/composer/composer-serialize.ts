@@ -1,4 +1,3 @@
-import path from 'node:path';
 import type { ContentBlock } from '../../types';
 import type { ComposerSegment, SerializeComposerInput } from './types';
 
@@ -11,34 +10,78 @@ function normalizeDisplayPathSeparators(value: string): string {
   return value.replace(/\\/g, '/');
 }
 
+function isWindowsAbsolutePath(value: string): boolean {
+  return /^[a-zA-Z]:\//.test(value) || /^\/\/[^/]+\/[^/]+/.test(value);
+}
+
+function isPosixAbsolutePath(value: string): boolean {
+  return value.startsWith('/');
+}
+
+function pathKind(value: string): 'windows' | 'posix' | 'relative' {
+  if (isWindowsAbsolutePath(value)) {
+    return 'windows';
+  }
+  if (isPosixAbsolutePath(value)) {
+    return 'posix';
+  }
+  return 'relative';
+}
+
+function trimTrailingSlashes(value: string, kind: 'windows' | 'posix' | 'relative'): string {
+  if (kind === 'posix') {
+    return value === '/' ? value : value.replace(/\/+$/, '');
+  }
+  if (kind === 'windows') {
+    if (/^[a-zA-Z]:\/$/.test(value) || /^\/\/[^/]+\/[^/]+\/?$/.test(value)) {
+      return value.endsWith('/') ? value : `${value}/`;
+    }
+    return value.replace(/\/+$/, '');
+  }
+  return value.replace(/\/+$/, '');
+}
+
 function toDisplayFilePath(filePath: string, workspacePath: string): string {
+  const normalizedFilePath = normalizeDisplayPathSeparators(filePath);
   if (!workspacePath) {
-    return filePath;
+    return normalizedFilePath;
   }
 
-  const useWindowsPath = path.win32.isAbsolute(filePath) && path.win32.isAbsolute(workspacePath);
-  const usePosixPath = path.posix.isAbsolute(filePath) && path.posix.isAbsolute(workspacePath);
-  const useNativePath = path.isAbsolute(filePath) && path.isAbsolute(workspacePath);
-  if (!useWindowsPath && !usePosixPath && !useNativePath) {
-    return filePath;
+  const normalizedWorkspacePath = normalizeDisplayPathSeparators(workspacePath);
+  const fileKind = pathKind(normalizedFilePath);
+  const workspaceKind = pathKind(normalizedWorkspacePath);
+  if (fileKind === 'relative') {
+    return normalizedFilePath;
+  }
+  if (workspaceKind !== fileKind) {
+    return normalizedFilePath;
   }
 
-  const relative = useWindowsPath
-    ? path.win32.relative(workspacePath, filePath)
-    : usePosixPath
-      ? path.posix.relative(workspacePath, filePath)
-      : path.relative(workspacePath, filePath);
-  const isRelativeOutsideWorkspace =
-    !relative ||
-    relative.startsWith('..') ||
-    path.win32.isAbsolute(relative) ||
-    path.posix.isAbsolute(relative) ||
-    path.isAbsolute(relative);
-  if (isRelativeOutsideWorkspace) {
-    return filePath;
+  const workspaceRoot = trimTrailingSlashes(normalizedWorkspacePath, workspaceKind);
+  const fileValue = trimTrailingSlashes(normalizedFilePath, fileKind);
+  const comparableWorkspaceRoot =
+    fileKind === 'windows' ? workspaceRoot.toLowerCase() : workspaceRoot;
+  const comparableFileValue = fileKind === 'windows' ? fileValue.toLowerCase() : fileValue;
+  if (comparableWorkspaceRoot === comparableFileValue) {
+    return normalizedFilePath;
   }
 
-  return normalizeDisplayPathSeparators(relative);
+  const comparablePrefix = comparableWorkspaceRoot.endsWith('/')
+    ? comparableWorkspaceRoot
+    : `${comparableWorkspaceRoot}/`;
+  if (!comparableFileValue.startsWith(comparablePrefix)) {
+    return normalizedFilePath;
+  }
+
+  const originalPrefixLength = workspaceRoot.endsWith('/')
+    ? workspaceRoot.length
+    : workspaceRoot.length + 1;
+  const relativePath = fileValue.slice(originalPrefixLength);
+  if (!relativePath || relativePath.startsWith('../')) {
+    return normalizedFilePath;
+  }
+
+  return relativePath;
 }
 
 function segmentToDisplayText(segment: ComposerSegment): string {

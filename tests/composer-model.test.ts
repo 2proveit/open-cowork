@@ -84,6 +84,33 @@ describe('serializeComposerValue', () => {
 
     expect(result.displayText).toBe('@src/renderer/index.ts');
   });
+
+  it('keeps outside-workspace absolute file mention paths and normalizes separators', () => {
+    const outsideWorkspaceMention: FileMentionContent = {
+      type: 'file_mention',
+      path: 'C:\\other\\project\\file.ts',
+      name: 'file.ts',
+      workspacePath: 'C:\\workspace',
+      source: 'workspace',
+    };
+    const relativeMention: FileMentionContent = {
+      type: 'file_mention',
+      path: 'src\\renderer\\view.ts',
+      name: 'view.ts',
+      workspacePath: 'C:\\workspace',
+      source: 'workspace',
+    };
+
+    const outsideResult = serializeComposerValue({
+      segments: [{ type: 'file_mention', mention: outsideWorkspaceMention }],
+    });
+    const relativeResult = serializeComposerValue({
+      segments: [{ type: 'file_mention', mention: relativeMention }],
+    });
+
+    expect(outsideResult.displayText).toBe('@C:/other/project/file.ts');
+    expect(relativeResult.displayText).toBe('@src/renderer/view.ts');
+  });
 });
 
 describe('removeSegmentAtCursor', () => {
