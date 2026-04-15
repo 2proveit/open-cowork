@@ -1,4 +1,5 @@
-import type { ActiveMentionQuery } from './types';
+import type { FileMentionContent, Skill } from '../../types';
+import type { ActiveMentionQuery, FileComposerCandidate, SkillComposerCandidate } from './types';
 
 const MENTION_PATTERN = /(?:^|[\s([{])([@/])([^\s]*)$/;
 const TRAILING_QUERY_PUNCTUATION = /[)\],]+$/;
@@ -50,4 +51,45 @@ export function applySuggestionNavigation(
     return candidateCount - 1;
   }
   return (highlightedIndex - 1 + candidateCount) % candidateCount;
+}
+
+export interface WorkspaceFileSearchResult {
+  path: string;
+  name: string;
+  relativePath: string;
+  source: FileMentionContent['source'];
+}
+
+export function buildFileCandidates(
+  files: WorkspaceFileSearchResult[],
+  workspacePath: string
+): FileComposerCandidate[] {
+  return files.map((file) => ({
+    type: 'file_mention',
+    id: `file:${file.path}`,
+    label: file.relativePath || file.name,
+    mention: {
+      type: 'file_mention',
+      path: file.path,
+      name: file.name,
+      workspacePath,
+      source: file.source,
+    },
+  }));
+}
+
+export function buildSkillCandidates(skills: Skill[]): SkillComposerCandidate[] {
+  return skills
+    .filter((skill) => skill.enabled)
+    .map((skill) => ({
+      type: 'skill_mention',
+      id: `skill:${skill.id}`,
+      label: skill.name,
+      mention: {
+        type: 'skill_mention',
+        skillId: skill.id,
+        name: skill.name,
+        description: skill.description,
+      },
+    }));
 }

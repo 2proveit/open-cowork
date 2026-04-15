@@ -154,6 +154,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   workspace: {
     getTree: (targetPath?: string): Promise<WorkspaceTreeNode[]> =>
       ipcRenderer.invoke('workspace.tree.get', targetPath),
+    searchFiles: (
+      query: string
+    ): Promise<Array<{ path: string; name: string; relativePath: string; source: 'workspace' }>> =>
+      ipcRenderer.invoke('workspace.files.search', query),
     readFile: (
       filePath: string
     ): Promise<{
@@ -443,6 +447,11 @@ declare global {
       };
       workspace: {
         getTree: (targetPath?: string) => Promise<WorkspaceTreeNode[]>;
+        searchFiles: (
+          query: string
+        ) => Promise<
+          Array<{ path: string; name: string; relativePath: string; source: 'workspace' }>
+        >;
         readFile: (filePath: string) => Promise<{
           path: string;
           content: string;

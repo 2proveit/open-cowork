@@ -84,6 +84,11 @@ import {
   isDevLogsEnabled,
 } from './utils/logger';
 import { listRecentWorkspaceFiles } from './utils/recent-workspace-files';
+import {
+  createWorkspaceMentionIndex,
+  type WorkspaceMentionIndex,
+  type WorkspaceMentionSearchResult,
+} from './utils/workspace-mention-index';
 import { buildDiagnosticsSummary } from './utils/diagnostics-summary';
 import { isPathWithinRoot } from './tools/path-containment';
 import { listWorkspaceChildren } from './workspace-files';
@@ -116,6 +121,9 @@ let skillsManager: SkillsManager | null = null;
 let pluginRuntimeService: PluginRuntimeService | null = null;
 let scheduledTaskManager: ScheduledTaskManager | null = null;
 let workspaceWatcher: FSWatcher | null = null;
+let workspaceMentionIndex: WorkspaceMentionIndex | null = null;
+let workspaceMentionIndexRoot: string | null = null;
+let workspaceMentionIndexPromise: Promise<WorkspaceMentionIndex> | null = null;
 
 function sanitizeDiagnosticBaseUrl(value: string | undefined): string | null {
   if (!value) {
@@ -558,6 +566,7 @@ function createWindow() {
 function applyCurrentWorkingDir(nextPath: string | null): void {
   currentWorkingDir = nextPath;
   remoteManager.setDefaultWorkingDirectory(nextPath || undefined);
+  invalidateWorkspaceMentionIndex();
 }
 
 function stopWorkspaceWatcher(): void {
@@ -592,6 +601,7 @@ function startWorkspaceWatcher(): void {
       ) {
         return;
       }
+      invalidateWorkspaceMentionIndex();
       sendToRenderer({
         type: 'workspace.tree.changed',
         payload: {
@@ -679,6 +689,38 @@ function resolveWorkspaceFile(filePath: string): string {
   }
 
   return resolvedPath;
+}
+
+function invalidateWorkspaceMentionIndex(): void {
+  workspaceMentionIndex = null;
+  workspaceMentionIndexRoot = null;
+  workspaceMentionIndexPromise = null;
+}
+
+async function getWorkspaceMentionIndex(): Promise<WorkspaceMentionIndex> {
+  if (!currentWorkingDir) {
+    throw new Error('No workspace selected');
+  }
+
+  if (workspaceMentionIndex && workspaceMentionIndexRoot === currentWorkingDir) {
+    return workspaceMentionIndex;
+  }
+
+  if (workspaceMentionIndexPromise && workspaceMentionIndexRoot === currentWorkingDir) {
+    return workspaceMentionIndexPromise;
+  }
+
+  workspaceMentionIndexRoot = currentWorkingDir;
+  workspaceMentionIndexPromise = createWorkspaceMentionIndex(currentWorkingDir)
+    .then((index) => {
+      workspaceMentionIndex = index;
+      return index;
+    })
+    .finally(() => {
+      workspaceMentionIndexPromise = null;
+    });
+
+  return workspaceMentionIndexPromise;
 }
 
 /**
@@ -2108,6 +2150,16 @@ ipcMain.handle('logs.getAll', () => {
 ipcMain.handle('workspace.tree.get', async (_event, targetPath?: string) => {
   const dirPath = resolveWorkspaceDirectory(targetPath);
   return listWorkspaceChildren(dirPath);
+});
+
+ipcMain.handle('workspace.files.search', async (_event, query: string) => {
+  const index = await getWorkspaceMentionIndex();
+  return index.search(query).map<WorkspaceMentionSearchResult>((result) => ({
+    path: result.path,
+    name: result.name,
+    relativePath: result.relativePath,
+    source: result.source,
+  }));
 });
 
 ipcMain.handle('workspace.file.read', async (_event, filePath: string) => {
