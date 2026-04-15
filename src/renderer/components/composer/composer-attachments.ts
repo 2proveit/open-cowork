@@ -19,6 +19,7 @@ export interface ComposerFileAttachment {
 export interface DroppedAttachmentResult {
   images: ComposerImageAttachment[];
   files: ComposerFileAttachment[];
+  imageFailureCount: number;
 }
 
 function normalizeImageMediaType(type: string): ComposerImageAttachment['mediaType'] {
@@ -132,7 +133,15 @@ export async function processDroppedFiles(files: File[]): Promise<DroppedAttachm
   const imageFiles = files.filter((file) => file.type.startsWith('image/'));
   const nonImageFiles = files.filter((file) => !file.type.startsWith('image/'));
 
-  const images = await Promise.all(imageFiles.map((file) => toImageAttachment(file)));
+  const images: ComposerImageAttachment[] = [];
+  let imageFailureCount = 0;
+  for (const file of imageFiles) {
+    try {
+      images.push(await toImageAttachment(file));
+    } catch {
+      imageFailureCount += 1;
+    }
+  }
   const processedFiles = await Promise.all(
     nonImageFiles.map(async (file) => {
       const droppedPath = 'path' in file && typeof file.path === 'string' ? file.path : '';
@@ -146,7 +155,7 @@ export async function processDroppedFiles(files: File[]): Promise<DroppedAttachm
     })
   );
 
-  return { images, files: processedFiles };
+  return { images, files: processedFiles, imageFailureCount };
 }
 
 export function toImageContent(image: ComposerImageAttachment): ImageContent {

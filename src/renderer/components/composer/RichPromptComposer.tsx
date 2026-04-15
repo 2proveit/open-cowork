@@ -29,7 +29,6 @@ interface RichPromptComposerProps {
   onImageProcessError: () => void;
   onSubmit: (contentBlocks: ContentBlock[]) => Promise<void>;
   onStop?: () => void;
-  onClick?: () => void;
 }
 
 export function RichPromptComposer({
@@ -47,7 +46,6 @@ export function RichPromptComposer({
   onImageProcessError,
   onSubmit,
   onStop,
-  onClick,
 }: RichPromptComposerProps) {
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -56,16 +54,21 @@ export function RichPromptComposer({
   const [attachedFiles, setAttachedFiles] = useState<ComposerFileAttachment[]>([]);
   const isComposingRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const stopHandler = onStop ?? onClick;
+  const latestImagesRef = useRef<ComposerImageAttachment[]>([]);
 
   useEffect(() => {
     textareaRef.current?.focus();
   }, [focusKey]);
 
   useEffect(() => {
-    return () => revokeImageUrls(pastedImages);
+    latestImagesRef.current = pastedImages;
   }, [pastedImages]);
+
+  useEffect(() => {
+    return () => {
+      revokeImageUrls(latestImagesRef.current);
+    };
+  }, []);
 
   const handlePaste = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = event.clipboardData?.items;
@@ -149,12 +152,15 @@ export function RichPromptComposer({
       if (droppedFiles.length === 0) {
         return;
       }
-      const { images, files } = await processDroppedFiles(droppedFiles);
+      const { images, files, imageFailureCount } = await processDroppedFiles(droppedFiles);
       if (images.length > 0) {
         setPastedImages((prev) => [...prev, ...images]);
       }
       if (files.length > 0) {
         setAttachedFiles((prev) => [...prev, ...files]);
+      }
+      for (let i = 0; i < imageFailureCount; i += 1) {
+        onImageProcessError();
       }
     } catch {
       onImageProcessError();
@@ -284,10 +290,10 @@ export function RichPromptComposer({
           <span className="hidden sm:inline-flex px-2.5 py-1 rounded-full border border-border-subtle bg-background/60 text-xs text-text-muted">
             {modelLabel}
           </span>
-          {canStop && stopHandler && (
+          {canStop && onStop && (
             <button
               type="button"
-              onClick={stopHandler}
+              onClick={onStop}
               className="w-9 h-9 rounded-2xl flex items-center justify-center bg-error/10 text-error hover:bg-error/20 transition-colors"
               title={stopTitle}
             >

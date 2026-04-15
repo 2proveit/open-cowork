@@ -392,7 +392,6 @@ export function ChatView() {
             }}
             onSubmit={handleComposerSubmit}
             onStop={handleStop}
-            onClick={handleStop}
           />
         </div>
       </div>
