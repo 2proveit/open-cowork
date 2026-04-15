@@ -304,6 +304,15 @@ export function WelcomeView() {
     // Get value from ref to handle both controlled and uncontrolled cases
     const currentPrompt = textareaRef.current?.value || prompt;
 
+    if (!workingDir) {
+      setGlobalNotice({
+        id: `notice-workspace-required-${Date.now()}`,
+        type: 'warning',
+        message: t('welcome.selectWorkingFolder'),
+      });
+      return;
+    }
+
     if (
       (!currentPrompt.trim() && pastedImages.length === 0 && attachedFiles.length === 0) ||
       isSubmitting
@@ -345,7 +354,6 @@ export function WelcomeView() {
       });
     }
 
-    // Use the global working directory (always available after app startup)
     setIsSubmitting(true);
     try {
       const sessionTitle = getInitialSessionTitle(currentPrompt, attachedFiles[0]?.name);

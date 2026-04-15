@@ -18,6 +18,7 @@ import type {
   ScheduleUpdateInput,
   ProviderModelInfo,
   LocalOllamaDiscoveryResult,
+  WorkspaceTreeNode,
 } from '../renderer/types';
 import type { DiagnosticInput, DiagnosticResult } from '../renderer/types';
 import type {
@@ -148,6 +149,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
       limit = 50
     ): Promise<Array<{ path: string; modifiedAt: number; size: number }>> =>
       ipcRenderer.invoke('artifacts.listRecentFiles', cwd, sinceMs, Math.min(limit, 500)),
+  },
+
+  workspace: {
+    getTree: (targetPath?: string): Promise<WorkspaceTreeNode[]> =>
+      ipcRenderer.invoke('workspace.tree.get', targetPath),
+    readFile: (
+      filePath: string
+    ): Promise<{
+      path: string;
+      content: string;
+    }> => ipcRenderer.invoke('workspace.file.read', filePath),
+    writeFile: (
+      filePath: string,
+      content: string,
+      expectedContent?: string
+    ): Promise<{
+      success: boolean;
+      conflict?: boolean;
+      savedAt?: number;
+      error?: string;
+    }> => ipcRenderer.invoke('workspace.file.write', filePath, content, expectedContent),
   },
 
   // Config methods
@@ -418,6 +440,23 @@ declare global {
           sinceMs: number,
           limit?: number
         ) => Promise<Array<{ path: string; modifiedAt: number; size: number }>>;
+      };
+      workspace: {
+        getTree: (targetPath?: string) => Promise<WorkspaceTreeNode[]>;
+        readFile: (filePath: string) => Promise<{
+          path: string;
+          content: string;
+        }>;
+        writeFile: (
+          filePath: string,
+          content: string,
+          expectedContent?: string
+        ) => Promise<{
+          success: boolean;
+          conflict?: boolean;
+          savedAt?: number;
+          error?: string;
+        }>;
       };
       config: {
         get: () => Promise<AppConfig>;

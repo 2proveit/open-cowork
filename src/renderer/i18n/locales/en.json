@@ -48,6 +48,37 @@
     "apiNotConfigured": "API not configured yet. Please go to Settings to set up your API provider and key.",
     "goToSettings": "Go to Settings"
   },
+  "workspacePanel": {
+    "sectionLabel": "Workspace",
+    "noWorkspace": "No workspace selected",
+    "openWorkspace": "Open Workspace",
+    "openFailed": "Failed to open workspace",
+    "newChat": "New Chat",
+    "openSettings": "Open settings",
+    "loadingTree": "Loading files...",
+    "emptyTree": "No files found in this workspace yet.",
+    "loadFailed": "Failed to load workspace files",
+    "readFileFailed": "Failed to read file",
+    "markdownOnly": "Only Markdown files can be opened in the workbench right now.",
+    "switchDirtyConfirm": "There are unsaved Markdown tabs. Continue switching workspaces?",
+    "switchDirtySavePrompt": "Press OK to save before switching, or Cancel to discard changes and continue.",
+    "historyTitle": "Session History",
+    "searchSessions": "Search sessions",
+    "deleteSession": "Delete session"
+  },
+  "fileWorkbench": {
+    "emptyTitle": "Markdown Workbench",
+    "emptyBody": "Choose a Markdown file from the workspace tree to open it here.",
+    "preview": "Preview",
+    "saving": "Saving draft...",
+    "saved": "Saved",
+    "unsavedChanges": "Unsaved changes",
+    "fileMissing": "This file was removed or renamed outside the app.",
+    "closeDirtyConfirm": "This tab has unsaved changes. Continue closing it?",
+    "closeDirtySavePrompt": "Press OK to save before closing, or Cancel to discard changes and continue.",
+    "saveFailed": "Failed to save file",
+    "conflictDetected": "The file changed on disk. Your draft was kept and not overwritten."
+  },
   "settings": {
     "title": "Settings",
     "apiSettings": "API Settings",

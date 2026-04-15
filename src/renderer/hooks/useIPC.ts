@@ -264,6 +264,16 @@ export function useIPC() {
             store.setWorkingDir(event.payload.path || null);
             break;
 
+          case 'workspace.tree.changed':
+            store.bumpWorkspaceTreeVersion();
+            if (
+              (event.payload.kind === 'unlink' || event.payload.kind === 'unlinkDir') &&
+              store.openTabs.some((tab) => tab.path === event.payload.path)
+            ) {
+              store.setFileSaveError(event.payload.path, i18n.t('fileWorkbench.fileMissing'));
+            }
+            break;
+
           case 'session.contextInfo':
             store.setSessionContextWindow(event.payload.sessionId, event.payload.contextWindow);
             break;

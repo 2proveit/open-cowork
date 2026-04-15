@@ -48,6 +48,37 @@
     "apiNotConfigured": "API 尚未配置，请前往设置页面填写 API 提供商和密钥。",
     "goToSettings": "前往设置"
   },
+  "workspacePanel": {
+    "sectionLabel": "工作区",
+    "noWorkspace": "尚未选择工作区",
+    "openWorkspace": "打开工作区",
+    "openFailed": "打开工作区失败",
+    "newChat": "新建对话",
+    "openSettings": "打开设置",
+    "loadingTree": "正在加载文件...",
+    "emptyTree": "当前工作区里还没有可显示的文件。",
+    "loadFailed": "加载工作区文件失败",
+    "readFileFailed": "读取文件失败",
+    "markdownOnly": "当前工作台仅支持打开 Markdown 文件。",
+    "switchDirtyConfirm": "当前有未保存的 Markdown 标签。要继续切换工作区吗？",
+    "switchDirtySavePrompt": "点击“确定”会先保存再切换，点击“取消”会放弃改动并继续切换。",
+    "historyTitle": "历史会话",
+    "searchSessions": "搜索会话",
+    "deleteSession": "删除会话"
+  },
+  "fileWorkbench": {
+    "emptyTitle": "Markdown 工作台",
+    "emptyBody": "从左侧文件树中选择一个 Markdown 文件，在这里打开。",
+    "preview": "预览",
+    "saving": "正在保存草稿...",
+    "saved": "已保存",
+    "unsavedChanges": "有未保存修改",
+    "fileMissing": "该文件已在应用外被删除或重命名。",
+    "closeDirtyConfirm": "当前标签有未保存修改。要继续关闭吗？",
+    "closeDirtySavePrompt": "点击“确定”会先保存再关闭，点击“取消”会放弃改动并继续关闭。",
+    "saveFailed": "保存文件失败",
+    "conflictDetected": "磁盘文件已变化，当前草稿已保留且未被覆盖。"
+  },
   "settings": {
     "title": "设置",
     "apiSettings": "API 设置",

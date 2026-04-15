@@ -10,6 +10,10 @@ import type {
   SandboxSetupProgress,
   SandboxSyncStatus,
   SkillsStorageChangeEvent,
+  WorkspaceTreeNode,
+  WorkspaceTreeLoadingState,
+  FileTab,
+  FileWorkbenchViewMode,
 } from '../types';
 import { applySessionUpdate } from '../utils/session-update';
 
@@ -106,6 +110,26 @@ interface AppState {
   // Working directory
   workingDir: string | null;
 
+  // Workspace panel
+  workspaceTree: WorkspaceTreeNode[];
+  expandedPaths: string[];
+  selectedPath: string | null;
+  historyCollapsed: boolean;
+  treeLoadingState: WorkspaceTreeLoadingState;
+  treeError: string | null;
+  workspaceTreeVersion: number;
+
+  // File workbench
+  openTabs: FileTab[];
+  activeTabPath: string | null;
+  viewModeByPath: Record<string, FileWorkbenchViewMode>;
+  draftContentByPath: Record<string, string>;
+  savedContentByPath: Record<string, string>;
+  dirtyByPath: Record<string, boolean>;
+  savingByPath: Record<string, boolean>;
+  saveErrorByPath: Record<string, string | null>;
+  lastSavedAtByPath: Record<string, number | null>;
+
   // Sandbox setup
   sandboxSetupProgress: SandboxSetupProgress | null;
   isSandboxSetupComplete: boolean;
@@ -173,6 +197,25 @@ interface AppState {
   // Working directory actions
   setWorkingDir: (path: string | null) => void;
 
+  // Workspace actions
+  setWorkspaceTree: (tree: WorkspaceTreeNode[]) => void;
+  setSelectedPath: (path: string | null) => void;
+  toggleExpandedPath: (path: string) => void;
+  setHistoryCollapsed: (collapsed: boolean) => void;
+  setTreeLoadingState: (loadingState: WorkspaceTreeLoadingState, error?: string | null) => void;
+  bumpWorkspaceTreeVersion: () => void;
+
+  // File workbench actions
+  openFileTab: (tab: FileTab, content: string) => void;
+  closeFileTab: (path: string) => void;
+  setActiveTabPath: (path: string | null) => void;
+  setTabViewMode: (path: string, mode: FileWorkbenchViewMode) => void;
+  setFileDraft: (path: string, content: string) => void;
+  markFileSaving: (path: string, saving: boolean) => void;
+  setFileSaveError: (path: string, error: string | null) => void;
+  markFileSaved: (path: string, content: string, savedAt?: number) => void;
+  resetWorkbench: () => void;
+
   // Sandbox setup actions
   setSandboxSetupProgress: (progress: SandboxSetupProgress | null) => void;
   setSandboxSetupComplete: (complete: boolean) => void;
@@ -236,6 +279,22 @@ export const useAppStore = create<AppState>((set) => ({
   hasSeenInitialConfigStatus: false,
   globalNotice: null,
   workingDir: null,
+  workspaceTree: [],
+  expandedPaths: [],
+  selectedPath: null,
+  historyCollapsed: false,
+  treeLoadingState: 'idle',
+  treeError: null,
+  workspaceTreeVersion: 0,
+  openTabs: [],
+  activeTabPath: null,
+  viewModeByPath: {},
+  draftContentByPath: {},
+  savedContentByPath: {},
+  dirtyByPath: {},
+  savingByPath: {},
+  saveErrorByPath: {},
+  lastSavedAtByPath: {},
   sandboxSetupProgress: null,
   isSandboxSetupComplete: false,
   sandboxSyncStatus: null,
@@ -262,7 +321,8 @@ export const useAppStore = create<AppState>((set) => ({
 
   removeSession: (sessionId) =>
     set((state) => {
-      const { [sessionId]: _, ...restSessionStates } = state.sessionStates;
+      const restSessionStates = { ...state.sessionStates };
+      delete restSessionStates[sessionId];
       return {
         sessions: state.sessions.filter((s) => s.id !== sessionId),
         sessionStates: restSessionStates,
@@ -576,6 +636,155 @@ export const useAppStore = create<AppState>((set) => ({
 
   // Working directory actions
   setWorkingDir: (path) => set({ workingDir: path }),
+
+  // Workspace actions
+  setWorkspaceTree: (workspaceTree) => set({ workspaceTree }),
+  setSelectedPath: (selectedPath) => set({ selectedPath }),
+  toggleExpandedPath: (path) =>
+    set((state) => ({
+      expandedPaths: state.expandedPaths.includes(path)
+        ? state.expandedPaths.filter((item) => item !== path)
+        : [...state.expandedPaths, path],
+    })),
+  setHistoryCollapsed: (historyCollapsed) => set({ historyCollapsed }),
+  setTreeLoadingState: (treeLoadingState, treeError = null) => set({ treeLoadingState, treeError }),
+  bumpWorkspaceTreeVersion: () =>
+    set((state) => ({ workspaceTreeVersion: state.workspaceTreeVersion + 1 })),
+
+  // File workbench actions
+  openFileTab: (tab, content) =>
+    set((state) => {
+      const existing = state.openTabs.find((item) => item.path === tab.path);
+      if (existing) {
+        return {
+          activeTabPath: tab.path,
+          openTabs: state.openTabs.map((item) => (item.path === tab.path ? tab : item)),
+        };
+      }
+
+      return {
+        openTabs: [...state.openTabs, tab],
+        activeTabPath: tab.path,
+        viewModeByPath: {
+          ...state.viewModeByPath,
+          [tab.path]: state.viewModeByPath[tab.path] || 'edit',
+        },
+        draftContentByPath: {
+          ...state.draftContentByPath,
+          [tab.path]: content,
+        },
+        savedContentByPath: {
+          ...state.savedContentByPath,
+          [tab.path]: content,
+        },
+        dirtyByPath: {
+          ...state.dirtyByPath,
+          [tab.path]: false,
+        },
+        savingByPath: {
+          ...state.savingByPath,
+          [tab.path]: false,
+        },
+        saveErrorByPath: {
+          ...state.saveErrorByPath,
+          [tab.path]: null,
+        },
+        lastSavedAtByPath: {
+          ...state.lastSavedAtByPath,
+          [tab.path]: null,
+        },
+      };
+    }),
+  closeFileTab: (path) =>
+    set((state) => {
+      const openTabs = state.openTabs.filter((tab) => tab.path !== path);
+      const activeTabPath =
+        state.activeTabPath === path ? openTabs.at(-1)?.path || null : state.activeTabPath;
+      return {
+        openTabs,
+        activeTabPath,
+      };
+    }),
+  setActiveTabPath: (activeTabPath) => set({ activeTabPath }),
+  setTabViewMode: (path, mode) =>
+    set((state) => ({
+      viewModeByPath: {
+        ...state.viewModeByPath,
+        [path]: mode,
+      },
+    })),
+  setFileDraft: (path, content) =>
+    set((state) => ({
+      draftContentByPath: {
+        ...state.draftContentByPath,
+        [path]: content,
+      },
+      dirtyByPath: {
+        ...state.dirtyByPath,
+        [path]: state.savedContentByPath[path] !== content,
+      },
+      saveErrorByPath: {
+        ...state.saveErrorByPath,
+        [path]: null,
+      },
+    })),
+  markFileSaving: (path, saving) =>
+    set((state) => ({
+      savingByPath: {
+        ...state.savingByPath,
+        [path]: saving,
+      },
+    })),
+  setFileSaveError: (path, error) =>
+    set((state) => ({
+      saveErrorByPath: {
+        ...state.saveErrorByPath,
+        [path]: error,
+      },
+      savingByPath: {
+        ...state.savingByPath,
+        [path]: false,
+      },
+    })),
+  markFileSaved: (path, content, savedAt) =>
+    set((state) => ({
+      draftContentByPath: {
+        ...state.draftContentByPath,
+        [path]: content,
+      },
+      savedContentByPath: {
+        ...state.savedContentByPath,
+        [path]: content,
+      },
+      dirtyByPath: {
+        ...state.dirtyByPath,
+        [path]: false,
+      },
+      savingByPath: {
+        ...state.savingByPath,
+        [path]: false,
+      },
+      saveErrorByPath: {
+        ...state.saveErrorByPath,
+        [path]: null,
+      },
+      lastSavedAtByPath: {
+        ...state.lastSavedAtByPath,
+        [path]: savedAt ?? Date.now(),
+      },
+    })),
+  resetWorkbench: () =>
+    set({
+      openTabs: [],
+      activeTabPath: null,
+      viewModeByPath: {},
+      draftContentByPath: {},
+      savedContentByPath: {},
+      dirtyByPath: {},
+      savingByPath: {},
+      saveErrorByPath: {},
+      lastSavedAtByPath: {},
+    }),
 
   // Sandbox setup actions
   setSandboxSetupProgress: (progress) => set({ sandboxSetupProgress: progress }),
