@@ -64,6 +64,10 @@ interface AgentRunner {
   clearSdkSession?(sessionId: string): void;
 }
 
+export interface WorkspaceMemoryArchiveService {
+  archiveSessionToMemory(input: { session: Session; messages: Message[] }): Promise<void>;
+}
+
 const WORKSPACE_MOUNT_VIRTUAL_PATH = '/mnt/workspace';
 const TITLE_GENERATION_TIMEOUT_MS = 20000;
 
@@ -87,14 +91,14 @@ export class SessionManager {
   private sessionTitleAttempts: Set<string> = new Set();
   private titleGenerationTokens: Map<string, symbol> = new Map();
   private messageCache: Map<string, Message[]> = new Map();
-  private workspaceMemoryService: WorkspaceMemoryService;
+  private workspaceMemoryService: WorkspaceMemoryArchiveService;
   private static readonly MAX_CACHE_SIZE = 100;
 
   constructor(
     db: DatabaseInstance,
     sendToRenderer: (event: ServerEvent) => void,
     pluginRuntimeService?: PluginRuntimeService,
-    workspaceMemoryService = new WorkspaceMemoryService(
+    workspaceMemoryService: WorkspaceMemoryArchiveService = new WorkspaceMemoryService(
       createModelBackedWorkspaceMemoryGenerator(() => configStore.getAll())
     )
   ) {
@@ -921,6 +925,10 @@ export class SessionManager {
 
   // Delete a session
   async deleteSession(sessionId: string): Promise<void> {
+    const session = this.loadSession(sessionId);
+    const wasRunning =
+      this.activeSessions.has(sessionId) || (session ? session.status === 'running' : false);
+
     // Stop if running
     this.stopSession(sessionId);
 
@@ -936,8 +944,7 @@ export class SessionManager {
       }
     }
 
-    const session = this.loadSession(sessionId);
-    if (session?.cwd) {
+    if (!wasRunning && session?.cwd) {
       try {
         await this.workspaceMemoryService.archiveSessionToMemory({
           session,
