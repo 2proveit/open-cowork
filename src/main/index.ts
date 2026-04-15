@@ -87,11 +87,11 @@ import { listRecentWorkspaceFiles } from './utils/recent-workspace-files';
 import {
   createWorkspaceMentionIndex,
   type WorkspaceMentionIndex,
-  type WorkspaceMentionSearchResult,
 } from './utils/workspace-mention-index';
 import { buildDiagnosticsSummary } from './utils/diagnostics-summary';
 import { isPathWithinRoot } from './tools/path-containment';
 import { listWorkspaceChildren } from './workspace-files';
+import type { WorkspaceFileSearchResult } from '../shared/workspace-file-search';
 
 // Current workspace path for the app shell and new-session defaults
 let currentWorkingDir: string | null = null;
@@ -124,6 +124,8 @@ let workspaceWatcher: FSWatcher | null = null;
 let workspaceMentionIndex: WorkspaceMentionIndex | null = null;
 let workspaceMentionIndexRoot: string | null = null;
 let workspaceMentionIndexPromise: Promise<WorkspaceMentionIndex> | null = null;
+let workspaceMentionIndexGeneration = 0;
+const WORKSPACE_FILE_SEARCH_MAX_RESULTS = 200;
 
 function sanitizeDiagnosticBaseUrl(value: string | undefined): string | null {
   if (!value) {
@@ -585,7 +587,6 @@ function startWorkspaceWatcher(): void {
   try {
     workspaceWatcher = chokidar.watch(currentWorkingDir, {
       ignoreInitial: true,
-      depth: 8,
       awaitWriteFinish: {
         stabilityThreshold: 200,
         pollInterval: 100,
@@ -692,6 +693,7 @@ function resolveWorkspaceFile(filePath: string): string {
 }
 
 function invalidateWorkspaceMentionIndex(): void {
+  workspaceMentionIndexGeneration += 1;
   workspaceMentionIndex = null;
   workspaceMentionIndexRoot = null;
   workspaceMentionIndexPromise = null;
@@ -710,17 +712,28 @@ async function getWorkspaceMentionIndex(): Promise<WorkspaceMentionIndex> {
     return workspaceMentionIndexPromise;
   }
 
-  workspaceMentionIndexRoot = currentWorkingDir;
-  workspaceMentionIndexPromise = createWorkspaceMentionIndex(currentWorkingDir)
+  const buildRoot = currentWorkingDir;
+  const buildGeneration = workspaceMentionIndexGeneration;
+  workspaceMentionIndexRoot = buildRoot;
+  const buildPromise = createWorkspaceMentionIndex(buildRoot)
     .then((index) => {
-      workspaceMentionIndex = index;
+      if (
+        workspaceMentionIndexPromise === buildPromise &&
+        workspaceMentionIndexRoot === buildRoot &&
+        workspaceMentionIndexGeneration === buildGeneration
+      ) {
+        workspaceMentionIndex = index;
+      }
       return index;
     })
     .finally(() => {
-      workspaceMentionIndexPromise = null;
+      if (workspaceMentionIndexPromise === buildPromise) {
+        workspaceMentionIndexPromise = null;
+      }
     });
+  workspaceMentionIndexPromise = buildPromise;
 
-  return workspaceMentionIndexPromise;
+  return buildPromise;
 }
 
 /**
@@ -2154,12 +2167,10 @@ ipcMain.handle('workspace.tree.get', async (_event, targetPath?: string) => {
 
 ipcMain.handle('workspace.files.search', async (_event, query: string) => {
   const index = await getWorkspaceMentionIndex();
-  return index.search(query).map<WorkspaceMentionSearchResult>((result) => ({
-    path: result.path,
-    name: result.name,
-    relativePath: result.relativePath,
-    source: result.source,
-  }));
+  const results: WorkspaceFileSearchResult[] = index
+    .search(query)
+    .slice(0, WORKSPACE_FILE_SEARCH_MAX_RESULTS);
+  return results;
 });
 
 ipcMain.handle('workspace.file.read', async (_event, filePath: string) => {

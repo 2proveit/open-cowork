@@ -1,4 +1,5 @@
-import type { FileMentionContent, Skill } from '../../types';
+import type { Skill } from '../../types';
+import type { WorkspaceFileSearchResult } from '../../../shared/workspace-file-search';
 import type { ActiveMentionQuery, FileComposerCandidate, SkillComposerCandidate } from './types';
 
 const MENTION_PATTERN = /(?:^|[\s([{])([@/])([^\s]*)$/;
@@ -51,13 +52,6 @@ export function applySuggestionNavigation(
     return candidateCount - 1;
   }
   return (highlightedIndex - 1 + candidateCount) % candidateCount;
-}
-
-export interface WorkspaceFileSearchResult {
-  path: string;
-  name: string;
-  relativePath: string;
-  source: FileMentionContent['source'];
 }
 
 export function buildFileCandidates(

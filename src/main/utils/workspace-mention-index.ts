@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import path from 'node:path';
+import type { WorkspaceFileSearchResult } from '../../shared/workspace-file-search';
 
 const EXCLUDED_DIR_NAMES = new Set([
   '.git',
@@ -13,20 +14,13 @@ const EXCLUDED_DIR_NAMES = new Set([
   '.turbo',
 ]);
 
-export interface WorkspaceMentionSearchResult {
-  path: string;
-  name: string;
-  relativePath: string;
-  source: 'workspace';
-}
-
-interface IndexedWorkspaceFile extends WorkspaceMentionSearchResult {
+interface IndexedWorkspaceFile extends WorkspaceFileSearchResult {
   searchableName: string;
   searchableRelativePath: string;
 }
 
 export interface WorkspaceMentionIndex {
-  search(query: string): WorkspaceMentionSearchResult[];
+  search(query: string): WorkspaceFileSearchResult[];
 }
 
 export async function createWorkspaceMentionIndex(
@@ -36,7 +30,7 @@ export async function createWorkspaceMentionIndex(
   const files = await collectWorkspaceFiles(workspaceRoot);
 
   return {
-    search(query: string): WorkspaceMentionSearchResult[] {
+    search(query: string): WorkspaceFileSearchResult[] {
       const normalizedQuery = query.trim().toLowerCase();
 
       if (!normalizedQuery) {
@@ -78,12 +72,9 @@ export async function createWorkspaceMentionIndex(
 async function collectWorkspaceFiles(workspaceRoot: string): Promise<IndexedWorkspaceFile[]> {
   const collected: IndexedWorkspaceFile[] = [];
   const queue: string[] = [workspaceRoot];
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current) {
-      continue;
-    }
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const current = queue[cursor];
+    if (!current) continue;
 
     let entries: Dirent[];
     try {
@@ -125,7 +116,7 @@ async function collectWorkspaceFiles(workspaceRoot: string): Promise<IndexedWork
   return collected;
 }
 
-function toSearchResult(file: IndexedWorkspaceFile): WorkspaceMentionSearchResult {
+function toSearchResult(file: IndexedWorkspaceFile): WorkspaceFileSearchResult {
   return {
     path: file.path,
     name: file.name,

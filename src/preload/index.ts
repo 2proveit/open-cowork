@@ -33,6 +33,7 @@ import type {
   PairingRequest,
   RemoteSessionMapping,
 } from '../shared/ipc-types';
+import type { WorkspaceFileSearchResult } from '../shared/workspace-file-search';
 
 // Track registered callbacks to prevent duplicate listeners
 let registeredCallback: ((event: ServerEvent) => void) | null = null;
@@ -154,9 +155,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   workspace: {
     getTree: (targetPath?: string): Promise<WorkspaceTreeNode[]> =>
       ipcRenderer.invoke('workspace.tree.get', targetPath),
-    searchFiles: (
-      query: string
-    ): Promise<Array<{ path: string; name: string; relativePath: string; source: 'workspace' }>> =>
+    searchFiles: (query: string): Promise<WorkspaceFileSearchResult[]> =>
       ipcRenderer.invoke('workspace.files.search', query),
     readFile: (
       filePath: string
@@ -447,11 +446,7 @@ declare global {
       };
       workspace: {
         getTree: (targetPath?: string) => Promise<WorkspaceTreeNode[]>;
-        searchFiles: (
-          query: string
-        ) => Promise<
-          Array<{ path: string; name: string; relativePath: string; source: 'workspace' }>
-        >;
+        searchFiles: (query: string) => Promise<WorkspaceFileSearchResult[]>;
         readFile: (filePath: string) => Promise<{
           path: string;
           content: string;
