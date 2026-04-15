@@ -1,9 +1,23 @@
+import path from 'node:path';
 import type { ContentBlock } from '../../types';
 import type { ComposerSegment, SerializeComposerInput } from './types';
 
 interface SerializedComposerValue {
   displayText: string;
   contentBlocks: ContentBlock[];
+}
+
+function toDisplayFilePath(filePath: string, workspacePath: string): string {
+  if (!path.isAbsolute(filePath) || !workspacePath) {
+    return filePath;
+  }
+
+  const relative = path.relative(workspacePath, filePath);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return filePath;
+  }
+
+  return relative;
 }
 
 function segmentToDisplayText(segment: ComposerSegment): string {
@@ -13,7 +27,7 @@ function segmentToDisplayText(segment: ComposerSegment): string {
     case 'line_break':
       return '\n';
     case 'file_mention':
-      return `@${segment.mention.path}`;
+      return `@${toDisplayFilePath(segment.mention.path, segment.mention.workspacePath)}`;
     case 'skill_mention':
       return `/${segment.mention.name}`;
     default:

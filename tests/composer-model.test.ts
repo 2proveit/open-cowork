@@ -27,7 +27,7 @@ describe('serializeComposerValue', () => {
     };
     const fileMention: FileMentionContent = {
       type: 'file_mention',
-      path: 'src/index.ts',
+      path: '/workspace/src/index.ts',
       name: 'index.ts',
       workspacePath: '/workspace',
       source: 'workspace',
