@@ -41,7 +41,7 @@ function trimTrailingSlashes(value: string, kind: 'windows' | 'posix' | 'relativ
   return value.replace(/\/+$/, '');
 }
 
-function toDisplayFilePath(filePath: string, workspacePath: string): string {
+export function toDisplayFilePath(filePath: string, workspacePath: string): string {
   const normalizedFilePath = normalizeDisplayPathSeparators(filePath);
   if (!workspacePath) {
     return normalizedFilePath;
@@ -84,7 +84,7 @@ function toDisplayFilePath(filePath: string, workspacePath: string): string {
   return relativePath;
 }
 
-function segmentToDisplayText(segment: ComposerSegment): string {
+export function segmentToDisplayText(segment: ComposerSegment): string {
   switch (segment.type) {
     case 'text':
       return segment.text;

@@ -28,6 +28,7 @@ export function ChatView() {
   const executionClock = useActiveExecutionClock();
   const appConfig = useAppConfig();
   const setGlobalNotice = useAppStore((state) => state.setGlobalNotice);
+  const workingDir = useAppStore((state) => state.workingDir);
   const { continueSession, stopSession, isElectron } = useIPC();
   const [activeConnectors, setActiveConnectors] = useState<
     { id: string; name: string; connected: boolean; toolCount: number }[]
@@ -51,6 +52,7 @@ export function ChatView() {
   const pendingCount = pendingTurns.length;
   const isSessionRunning = activeSession?.status === 'running';
   const canStop = isSessionRunning || hasActiveTurn || pendingCount > 0;
+  const composerWorkspacePath = activeSession?.cwd || workingDir || undefined;
 
   const displayedMessages = useMemo(() => {
     if (!activeSessionId) return messages;
@@ -259,11 +261,11 @@ export function ChatView() {
     return () => observer.disconnect();
   }, [activeSession?.title, activeConnectors.length]);
 
-  const handleComposerSubmit = async (contentBlocks: ContentBlock[]) => {
+  const handleComposerSubmit = async (displayText: string, contentBlocks: ContentBlock[]) => {
     if (!activeSessionId) {
       return;
     }
-    await continueSession(activeSessionId, contentBlocks);
+    await continueSession(activeSessionId, { displayText, contentBlocks }, composerWorkspacePath);
   };
 
   const handleStop = () => {
@@ -381,6 +383,7 @@ export function ChatView() {
             stopTitle={t('chat.stop')}
             disclaimer={t('chat.disclaimer')}
             getPastedImageAlt={(index) => t('common.pastedImageAlt', { index: index + 1 })}
+            workspacePath={composerWorkspacePath}
             focusKey={activeSessionId}
             shellClassName="rounded-[1.75rem] bg-background/88 shadow-soft"
             onImageProcessError={() => {
@@ -390,7 +393,9 @@ export function ChatView() {
                 message: t('chat.imageProcessFailed'),
               });
             }}
-            onSubmit={handleComposerSubmit}
+            onSubmit={async ({ displayText, contentBlocks }) => {
+              await handleComposerSubmit(displayText, contentBlocks);
+            }}
             onStop={handleStop}
           />
         </div>

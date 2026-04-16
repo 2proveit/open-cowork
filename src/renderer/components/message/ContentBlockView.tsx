@@ -21,6 +21,7 @@ import { ThinkingBlock } from './ThinkingBlock';
 import { ToolUseBlock } from './ToolUseBlock';
 import { ToolResultBlock } from './ToolResultBlock';
 import type { ContentBlockViewProps } from './types';
+import { revealFileInShell } from './reveal-file';
 
 const MessageMarkdown = lazy(() =>
   import('../MessageMarkdown').then((module) => ({ default: module.MessageMarkdown }))
@@ -48,36 +49,27 @@ export const ContentBlockView = memo(function ContentBlockView({
   const currentWorkingDir = activeSession?.cwd || workingDir;
 
   const resolveFilePath = (value: string) => resolvePathAgainstWorkspace(value, currentWorkingDir);
+  const handleRevealFailure = (error?: unknown) => {
+    setGlobalNotice({
+      id: `message-card-reveal-failed-${Date.now()}`,
+      type: 'warning',
+      message: error instanceof Error && error.message ? error.message : t('context.revealFailed'),
+    });
+  };
 
   const renderFileButton = (value: string, key?: string) => (
     <button
       key={key}
       type="button"
       onClick={async () => {
-        if (typeof window === 'undefined' || !window.electronAPI?.showItemInFolder) {
-          return;
-        }
         const resolvedPath = resolveFilePath(value);
-        try {
-          const revealed = await window.electronAPI.showItemInFolder(
-            resolvedPath,
-            currentWorkingDir ?? undefined
-          );
-          if (!revealed) {
-            setGlobalNotice({
-              id: `message-card-reveal-failed-${Date.now()}`,
-              type: 'warning',
-              message: t('context.revealFailed'),
-            });
-          }
-        } catch (error) {
-          setGlobalNotice({
-            id: `message-card-reveal-failed-${Date.now()}`,
-            type: 'warning',
-            message:
-              error instanceof Error && error.message ? error.message : t('context.revealFailed'),
-          });
-        }
+        await revealFileInShell({
+          filePath: resolvedPath,
+          cwd: currentWorkingDir ?? undefined,
+          showItemInFolder:
+            typeof window === 'undefined' ? undefined : window.electronAPI?.showItemInFolder,
+          onFailure: handleRevealFailure,
+        });
       }}
       className={getFileLinkButtonClassName()}
       title={resolveFilePath(value)}
@@ -119,31 +111,15 @@ export const ContentBlockView = memo(function ContentBlockView({
             <button
               type="button"
               onClick={async () => {
-                if (typeof window === 'undefined' || !window.electronAPI?.showItemInFolder) {
-                  return;
-                }
-                try {
-                  const revealed = await window.electronAPI.showItemInFolder(
-                    localFilePath,
-                    currentWorkingDir ?? undefined
-                  );
-                  if (!revealed) {
-                    setGlobalNotice({
-                      id: `message-card-reveal-failed-${Date.now()}`,
-                      type: 'warning',
-                      message: t('context.revealFailed'),
-                    });
-                  }
-                } catch (error) {
-                  setGlobalNotice({
-                    id: `message-card-reveal-failed-${Date.now()}`,
-                    type: 'warning',
-                    message:
-                      error instanceof Error && error.message
-                        ? error.message
-                        : t('context.revealFailed'),
-                  });
-                }
+                await revealFileInShell({
+                  filePath: localFilePath,
+                  cwd: currentWorkingDir ?? undefined,
+                  showItemInFolder:
+                    typeof window === 'undefined'
+                      ? undefined
+                      : window.electronAPI?.showItemInFolder,
+                  onFailure: handleRevealFailure,
+                });
               }}
               className={getFileLinkButtonClassName()}
               title={localFilePath}
@@ -334,6 +310,57 @@ export const ContentBlockView = memo(function ContentBlockView({
           <FileText className="w-4 h-4 text-accent flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm text-text-primary truncate">{fileBlock.filename}</p>
+          </div>
+        </div>
+      );
+    }
+
+    case 'file_mention': {
+      const fileBlock = block as {
+        type: 'file_mention';
+        name: string;
+        path: string;
+        workspacePath: string;
+      };
+      const resolvedPath = resolvePathAgainstWorkspace(
+        fileBlock.path,
+        fileBlock.workspacePath || currentWorkingDir
+      );
+
+      return (
+        <button
+          type="button"
+          onClick={async () => {
+            await revealFileInShell({
+              filePath: resolvedPath,
+              cwd: currentWorkingDir ?? undefined,
+              showItemInFolder:
+                typeof window === 'undefined' ? undefined : window.electronAPI?.showItemInFolder,
+              onFailure: handleRevealFailure,
+            });
+          }}
+          className="flex max-w-full min-w-0 items-center gap-2 px-3 py-2 rounded-lg bg-surface-muted border border-border overflow-hidden text-left"
+          title={resolvedPath}
+        >
+          <FileText className="w-4 h-4 text-accent flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-text-primary truncate">@{fileBlock.name}</p>
+          </div>
+        </button>
+      );
+    }
+
+    case 'skill_mention': {
+      const skillBlock = block as { type: 'skill_mention'; name: string; description?: string };
+
+      return (
+        <div className="flex max-w-full min-w-0 items-center gap-2 px-3 py-2 rounded-lg bg-surface-muted border border-border overflow-hidden">
+          <FileText className="w-4 h-4 text-accent flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-text-primary truncate">/{skillBlock.name}</p>
+            {skillBlock.description ? (
+              <p className="text-xs text-text-muted truncate">{skillBlock.description}</p>
+            ) : null}
           </div>
         </div>
       );

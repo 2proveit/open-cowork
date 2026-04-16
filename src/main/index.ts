@@ -2761,6 +2761,18 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
       );
 
     case 'session.continue':
+      if (event.payload.cwd) {
+        const result = await setWorkingDir(event.payload.cwd, event.payload.sessionId);
+        if (!result.success) {
+          sendToRenderer({
+            type: 'error',
+            payload: {
+              message: result.error || 'Failed to update working directory',
+            },
+          });
+          return null;
+        }
+      }
       return sm.continueSession(
         event.payload.sessionId,
         event.payload.prompt,

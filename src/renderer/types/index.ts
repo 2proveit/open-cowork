@@ -366,7 +366,7 @@ export type ClientEvent =
     }
   | {
       type: 'session.continue';
-      payload: { sessionId: string; prompt: string; content?: ContentBlock[] };
+      payload: { sessionId: string; prompt: string; content?: ContentBlock[]; cwd?: string };
     }
   | { type: 'session.stop'; payload: { sessionId: string } }
   | { type: 'session.delete'; payload: { sessionId: string } }

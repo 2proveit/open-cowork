@@ -31,6 +31,9 @@ export function ComposerSuggestionPanel({
               role="option"
               aria-selected={highlightedIndex === index}
               onMouseEnter={() => onHover?.(index)}
+              onMouseDown={(event) => {
+                event.preventDefault();
+              }}
               onClick={() => onSelect(candidate)}
               className={`w-full text-left px-3 py-2 text-sm transition-colors ${
                 highlightedIndex === index

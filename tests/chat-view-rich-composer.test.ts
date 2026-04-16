@@ -9,11 +9,28 @@ function readChatViewSource() {
 }
 
 describe('ChatView rich composer integration', () => {
-  it('imports and renders RichPromptComposer', () => {
+  it('imports and renders RichPromptComposer with the active composer workspace', () => {
     const source = readChatViewSource();
 
     expect(source).toContain("import { RichPromptComposer } from './composer/RichPromptComposer';");
     expect(source).toContain('<RichPromptComposer');
+    expect(source).toContain(
+      'const composerWorkspacePath = activeSession?.cwd || workingDir || undefined;'
+    );
+    expect(source).toContain('workspacePath={composerWorkspacePath}');
+  });
+
+  it('forwards both displayText/contentBlocks and the composer workspace on submit', () => {
+    const source = readChatViewSource();
+
+    expect(source).toContain(
+      'const handleComposerSubmit = async (displayText: string, contentBlocks: ContentBlock[]) => {'
+    );
+    expect(source).toContain(
+      'await continueSession(activeSessionId, { displayText, contentBlocks }, composerWorkspacePath);'
+    );
+    expect(source).toContain('onSubmit={async ({ displayText, contentBlocks }) => {');
+    expect(source).toContain('await handleComposerSubmit(displayText, contentBlocks);');
   });
 
   it('does not keep inline textarea composer markup', () => {

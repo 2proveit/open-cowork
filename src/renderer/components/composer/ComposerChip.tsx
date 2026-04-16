@@ -5,6 +5,7 @@ interface ComposerChipProps {
   label: string;
   onRemove?: () => void;
   removeTitle?: string;
+  removeDisabled?: boolean;
   className?: string;
   leading?: ReactNode;
 }
@@ -13,6 +14,7 @@ export function ComposerChip({
   label,
   onRemove,
   removeTitle,
+  removeDisabled = false,
   className = '',
   leading,
 }: ComposerChipProps) {
@@ -28,6 +30,7 @@ export function ComposerChip({
         <button
           type="button"
           onClick={onRemove}
+          disabled={removeDisabled}
           className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
           title={removeTitle}
         >
