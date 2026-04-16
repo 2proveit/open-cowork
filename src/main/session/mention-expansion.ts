@@ -52,10 +52,20 @@ export async function expandMentionBlocks(
       .map((block) => block.relativePath)
   );
 
+  const seenMentionAttachmentPaths = new Set<string>();
   const mentionAttachments = fileMentions
     .map(createMentionAttachment)
     .filter((attachment): attachment is FileAttachmentContent => Boolean(attachment))
-    .filter((attachment) => !existingAttachmentPaths.has(attachment.relativePath));
+    .filter((attachment) => {
+      if (existingAttachmentPaths.has(attachment.relativePath)) {
+        return false;
+      }
+      if (seenMentionAttachmentPaths.has(attachment.relativePath)) {
+        return false;
+      }
+      seenMentionAttachmentPaths.add(attachment.relativePath);
+      return true;
+    });
 
   const mentionedFilesPrompt = fileMentions
     .map((file) => {

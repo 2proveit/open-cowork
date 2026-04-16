@@ -710,20 +710,21 @@ function invalidateWorkspaceMentionIndex(): void {
   workspaceMentionIndexPromise = null;
 }
 
-async function getWorkspaceMentionIndex(): Promise<WorkspaceMentionIndex> {
-  if (!currentWorkingDir) {
+async function getWorkspaceMentionIndex(rootPath?: string): Promise<WorkspaceMentionIndex> {
+  const resolvedRoot = rootPath ? resolve(rootPath) : currentWorkingDir;
+  if (!resolvedRoot) {
     throw new Error('No workspace selected');
   }
 
-  if (workspaceMentionIndex && workspaceMentionIndexRoot === currentWorkingDir) {
+  if (workspaceMentionIndex && workspaceMentionIndexRoot === resolvedRoot) {
     return workspaceMentionIndex;
   }
 
-  if (workspaceMentionIndexPromise && workspaceMentionIndexRoot === currentWorkingDir) {
+  if (workspaceMentionIndexPromise && workspaceMentionIndexRoot === resolvedRoot) {
     return workspaceMentionIndexPromise;
   }
 
-  const buildRoot = currentWorkingDir;
+  const buildRoot = resolvedRoot;
   const buildGeneration = workspaceMentionIndexGeneration;
   workspaceMentionIndexRoot = buildRoot;
   const buildPromise = createWorkspaceMentionIndex(buildRoot)
@@ -2176,8 +2177,8 @@ ipcMain.handle('workspace.tree.get', async (_event, targetPath?: string) => {
   return listWorkspaceChildren(dirPath);
 });
 
-ipcMain.handle('workspace.files.search', async (_event, query: string) => {
-  const index = await getWorkspaceMentionIndex();
+ipcMain.handle('workspace.files.search', async (_event, query: string, workspacePath?: string) => {
+  const index = await getWorkspaceMentionIndex(workspacePath);
   const results: WorkspaceFileSearchResult[] = index
     .search(query)
     .slice(0, WORKSPACE_FILE_SEARCH_MAX_RESULTS);

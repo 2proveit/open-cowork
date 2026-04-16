@@ -9,6 +9,7 @@ import {
 } from 'react';
 import type { ComposerSegment } from './types';
 import { segmentToDisplayText } from './composer-serialize';
+import { removeSegmentAtCursor } from './composer-model';
 
 interface ComposerEditorProps {
   value: ComposerSegment[];
@@ -202,6 +203,59 @@ function insertLineBreakAtSelection(element: HTMLDivElement): void {
   nextRange.collapse(true);
   selection.removeAllRanges();
   selection.addRange(nextRange);
+}
+
+function getCursorFromSelectionOffset(
+  segments: ComposerSegment[],
+  selectionOffset: number
+): { segmentIndex: number; offset: number } {
+  const normalizedOffset = Math.max(0, selectionOffset);
+  let runningOffset = 0;
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    const segmentText = segmentToDisplayText(segment);
+    const segmentLength = segmentText.length;
+
+    if (segment.type === 'text') {
+      if (normalizedOffset <= runningOffset + segmentLength) {
+        return {
+          segmentIndex: index,
+          offset: normalizedOffset - runningOffset,
+        };
+      }
+      runningOffset += segmentLength;
+      continue;
+    }
+
+    if (normalizedOffset <= runningOffset) {
+      return { segmentIndex: index, offset: 0 };
+    }
+    if (normalizedOffset < runningOffset + segmentLength) {
+      return { segmentIndex: index + 1, offset: 0 };
+    }
+
+    runningOffset += segmentLength;
+  }
+
+  return { segmentIndex: segments.length, offset: 0 };
+}
+
+function getSelectionOffsetFromCursor(
+  segments: ComposerSegment[],
+  cursor: { segmentIndex: number; offset: number }
+): number {
+  let offset = 0;
+
+  for (let index = 0; index < Math.min(cursor.segmentIndex, segments.length); index += 1) {
+    offset += segmentToDisplayText(segments[index]).length;
+  }
+
+  if (cursor.segmentIndex < segments.length && segments[cursor.segmentIndex]?.type === 'text') {
+    offset += cursor.offset;
+  }
+
+  return offset;
 }
 
 function getNodeTextLength(node: Node): number {
@@ -444,6 +498,32 @@ export function ComposerEditor({
           onValueChange(nextValue);
           onSelectionChange?.(getSelectionOffset(event.currentTarget));
           return;
+        }
+
+        if ((event.key === 'Backspace' || event.key === 'Delete') && !event.defaultPrevented) {
+          const selection = window.getSelection();
+          if (selection?.rangeCount && selection.isCollapsed) {
+            const direction = event.key === 'Backspace' ? 'backward' : 'forward';
+            const cursor = getCursorFromSelectionOffset(
+              value,
+              getSelectionOffset(event.currentTarget)
+            );
+            const result = removeSegmentAtCursor(value, cursor, direction);
+
+            if (result.removed) {
+              event.preventDefault();
+              replaceEditorContents(event.currentTarget, result.segments);
+              lastDomValueRef.current = serializeSegments(result.segments);
+              onValueChange(result.segments);
+              const nextSelectionOffset = getSelectionOffsetFromCursor(
+                result.segments,
+                result.cursor
+              );
+              setSelectionOffset(event.currentTarget, nextSelectionOffset);
+              onSelectionChange?.(nextSelectionOffset);
+              return;
+            }
+          }
         }
 
         onKeyDown?.(event);

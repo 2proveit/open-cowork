@@ -164,4 +164,39 @@ describe('mention-expansion', () => {
     expect(attachmentPaths).toEqual(['.tmp/report.pdf', '.tmp/report.ts']);
     expect(fs.readdirSync(path.join(tempDir, '.tmp')).sort()).toEqual(['report.pdf', 'report.ts']);
   });
+
+  it('deduplicates repeated file mentions for the same source path', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mention-dedup-'));
+    const mentionedFilePath = path.join(tempDir, 'src', 'ChatView.tsx');
+    fs.mkdirSync(path.dirname(mentionedFilePath), { recursive: true });
+    fs.writeFileSync(mentionedFilePath, 'export const view = true;\n', 'utf8');
+
+    const result = await expandMentionBlocks(tempDir, [
+      {
+        type: 'file_mention',
+        path: mentionedFilePath,
+        name: 'ChatView.tsx',
+        workspacePath: tempDir,
+        source: 'workspace',
+      },
+      {
+        type: 'text',
+        text: ' again ',
+      },
+      {
+        type: 'file_mention',
+        path: mentionedFilePath,
+        name: 'ChatView.tsx',
+        workspacePath: tempDir,
+        source: 'workspace',
+      },
+    ]);
+
+    const executionAttachments = result.executionContentBlocks.filter(
+      (block): block is FileAttachmentContent => block.type === 'file_attachment'
+    );
+
+    expect(executionAttachments).toHaveLength(1);
+    expect(executionAttachments[0]?.relativePath).toBe(mentionedFilePath);
+  });
 });

@@ -277,7 +277,10 @@ export function RichPromptComposer({
           return;
         }
 
-        const files = await window.electronAPI.workspace.searchFiles(nextQuery.query);
+        const files = await window.electronAPI.workspace.searchFiles(
+          nextQuery.query,
+          workspacePath
+        );
         if (candidateRequestIdRef.current !== requestId) {
           return;
         }

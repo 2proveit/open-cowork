@@ -4,6 +4,7 @@ import { createElement } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setSelectionOffset } from '../src/renderer/components/composer/ComposerEditor';
 import { RichPromptComposer } from '../src/renderer/components/composer/RichPromptComposer';
 
 function createDeferred() {
@@ -249,7 +250,7 @@ describe('RichPromptComposer', () => {
       await Promise.resolve();
     });
 
-    expect(searchFiles).toHaveBeenCalledWith('src/renderer/components/Cha');
+    expect(searchFiles).toHaveBeenCalledWith('src/renderer/components/Cha', '/repo');
     await pressKey(editor, 'Tab');
     await pressEnter(editor);
 
@@ -331,7 +332,7 @@ describe('RichPromptComposer', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(searchFiles).toHaveBeenCalledWith('chat');
+    expect(searchFiles).toHaveBeenCalledWith('chat', '/repo');
 
     updateEditorText(editor, 'open chat');
     await act(async () => {
@@ -400,5 +401,46 @@ describe('RichPromptComposer', () => {
     expect(mouseDownEvent.defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(editor);
     expect(editor.textContent).toContain('@src/renderer/components/ChatView.tsx');
+  });
+
+  it('removes an accepted mention chip with Backspace before submit', async () => {
+    const searchFiles = vi.fn().mockResolvedValue([
+      {
+        path: '/repo/src/renderer/components/ChatView.tsx',
+        relativePath: 'src/renderer/components/ChatView.tsx',
+        name: 'ChatView.tsx',
+        source: 'workspace',
+      },
+    ]);
+    (window as typeof window & { electronAPI?: unknown }).electronAPI = {
+      workspace: { searchFiles },
+      skills: { getAll: vi.fn().mockResolvedValue([]) },
+    };
+
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const { editor, sendButton } = renderComposer(onSubmit, {
+      isElectron: true,
+      workspacePath: '/repo',
+    });
+
+    updateEditorText(editor, '@chat');
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await pressKey(editor, 'Tab');
+    const insertedMentionText = '@src/renderer/components/ChatView.tsx';
+    expect(editor.textContent).toContain(insertedMentionText);
+
+    act(() => {
+      setSelectionOffset(editor, insertedMentionText.length);
+    });
+
+    await pressKey(editor, 'Backspace');
+    expect(editor.textContent).not.toContain(insertedMentionText);
+
+    await pressEnter(editor);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(sendButton.disabled).toBe(true);
   });
 });
