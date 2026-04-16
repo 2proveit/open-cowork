@@ -30,6 +30,10 @@ function parseStringArray(value: unknown): string[] {
   return value;
 }
 
+function parseOptionalStringArray(value: unknown): string[] {
+  return typeof value === 'undefined' ? [] : parseStringArray(value);
+}
+
 function parseRecentSessionSummary(value: unknown): SessionMemorySummary {
   if (!value || typeof value !== 'object') {
     throw new Error('Invalid workspace memory payload shape');
@@ -46,7 +50,7 @@ function parseRecentSessionSummary(value: unknown): SessionMemorySummary {
     timestamp: summary.timestamp,
     title: typeof summary.title === 'string' ? summary.title : undefined,
     summary: summary.summary,
-    signals: parseStringArray(summary.signals),
+    signals: parseOptionalStringArray(summary.signals),
   };
 }
 
@@ -64,9 +68,9 @@ function parsePayload(raw: string): WorkspaceMemoryGenerationResult {
 
   const data = payload as WorkspaceMemoryPayload;
   return {
-    userProfile: parseStringArray(data.userProfile),
-    habitsAndPreferences: parseStringArray(data.habitsAndPreferences),
-    activeWorkstreams: parseStringArray(data.activeWorkstreams),
+    userProfile: parseOptionalStringArray(data.userProfile),
+    habitsAndPreferences: parseOptionalStringArray(data.habitsAndPreferences),
+    activeWorkstreams: parseOptionalStringArray(data.activeWorkstreams),
     recentSessionSummary: parseRecentSessionSummary(data.recentSessionSummary),
   };
 }

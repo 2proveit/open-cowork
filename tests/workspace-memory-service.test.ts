@@ -114,15 +114,15 @@ describe('WorkspaceMemoryService', () => {
     expect(after).toBe(before);
   });
 
-  it('returns empty prompt memory when managed markers are malformed', () => {
+  it('falls back to manual notes when managed markers are malformed', () => {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-memory-'));
     fs.writeFileSync(
       path.join(workspace, 'MEMORY.md'),
-      '# MEMORY\n\n## Manual Notes\nx\n\n<!-- COWORK:MANAGED:START -->\nmissing end'
+      '# MEMORY\n\n## Manual Notes\nmanual note\n\n<!-- COWORK:MANAGED:START -->\nmissing end'
     );
     const service = new WorkspaceMemoryService(generator as never);
 
-    expect(service.buildPromptMemory(workspace)).toBe('');
+    expect(service.buildPromptMemory(workspace)).toContain('manual note');
   });
 
   it('merges with newest-first ordering, dedupe, summary window, and bounded growth', async () => {

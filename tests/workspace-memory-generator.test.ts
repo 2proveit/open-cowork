@@ -97,6 +97,34 @@ describe('model-backed workspace memory generator', () => {
     expect(result.recentSessionSummary.summary).toContain('托管区块');
   });
 
+  it('defaults omitted array fields to empty arrays', async () => {
+    mocks.generateTextWithClaudeSdk.mockResolvedValue(
+      JSON.stringify({
+        userProfile: ['Prefers concise answers.'],
+        recentSessionSummary: {
+          timestamp: '2026-04-15 18:18',
+          summary: '定义了托管区块和注入策略。',
+        },
+      })
+    );
+
+    const generator = createModelBackedWorkspaceMemoryGenerator(() => config);
+    const result = await generator.generate({
+      existingManaged: {
+        userProfile: [],
+        habitsAndPreferences: [],
+        activeWorkstreams: [],
+        recentSessionSummaries: [],
+      },
+      sessionTurns: [{ role: 'user', text: '请在删除会话时写入 MEMORY.md' }],
+    });
+
+    expect(result.userProfile).toEqual(['Prefers concise answers.']);
+    expect(result.habitsAndPreferences).toEqual([]);
+    expect(result.activeWorkstreams).toEqual([]);
+    expect(result.recentSessionSummary.signals).toEqual([]);
+  });
+
   it('throws when the helper returns invalid JSON', async () => {
     mocks.generateTextWithClaudeSdk.mockResolvedValue('not-json');
     const generator = createModelBackedWorkspaceMemoryGenerator(() => config);

@@ -1867,7 +1867,7 @@ Tool routing:
         // ResourceLoader + ModelRegistry only needed for session creation — skip on reuse
         const workspaceMemoryPrompt = buildFreshSessionWorkspaceMemoryPrompt({
           isFreshSession: true,
-          effectiveCwd,
+          workspacePath: workingDir,
           workspaceMemoryService: this.workspaceMemoryService,
         });
         const coworkAppendPrompt = [...coworkPromptSections, workspaceMemoryPrompt]

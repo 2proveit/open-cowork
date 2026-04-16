@@ -193,9 +193,6 @@ export class WorkspaceMemoryService {
     }
 
     const markdown = fs.readFileSync(memoryFile, 'utf8');
-    if (hasInvalidManagedMemoryMarkers(markdown)) {
-      return '';
-    }
     const promptMemory = buildPromptMemoryText(markdown, {
       maxChars: this.promptMaxChars,
       maxFileChars: this.fileMaxChars,

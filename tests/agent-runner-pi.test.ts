@@ -124,7 +124,7 @@ describe('ClaudeAgentRunner pi-coding-agent integration', () => {
 
     const prompt = buildFreshSessionWorkspaceMemoryPrompt({
       isFreshSession: true,
-      effectiveCwd: '/tmp/workspace',
+      workspacePath: '/tmp/workspace',
       workspaceMemoryService,
     });
 
@@ -139,7 +139,22 @@ describe('ClaudeAgentRunner pi-coding-agent integration', () => {
 
     const prompt = buildFreshSessionWorkspaceMemoryPrompt({
       isFreshSession: false,
-      effectiveCwd: '/tmp/workspace',
+      workspacePath: '/tmp/workspace',
+      workspaceMemoryService,
+    });
+
+    expect(workspaceMemoryService.buildPromptMemory).not.toHaveBeenCalled();
+    expect(prompt).toBe('');
+  });
+
+  it('skips workspace memory when the session has no real workspace path', () => {
+    const workspaceMemoryService = {
+      buildPromptMemory: vi.fn(() => '<workspace_memory>\nbar\n</workspace_memory>'),
+    };
+
+    const prompt = buildFreshSessionWorkspaceMemoryPrompt({
+      isFreshSession: true,
+      workspacePath: undefined,
       workspaceMemoryService,
     });
 
