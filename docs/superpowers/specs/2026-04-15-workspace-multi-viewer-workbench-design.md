@@ -320,6 +320,39 @@
 - `supportsSuggestions()`
 - `getDisplayTitle()`
 
+### 8.4 工作区文件 I/O 契约
+
+首期 `.xlsx` 支持不能沿用当前只面向 UTF-8 文本的工作区文件接口。
+
+当前仓库里的 `workspace.file.read` / `workspace.file.write` 更适合：
+
+- Markdown
+- 代码文件
+- 其他纯文本文件
+
+但不适合 `.xlsx` 这类二进制 workbook。为此，设计必须显式包含两套工作区 I/O 契约：
+
+- `workspace.file.read` / `workspace.file.write`
+  - 继续用于文本文件
+  - `write` 继续支持 `expectedContent`，用于保存前冲突检测
+- `workspace.file.readBuffer` / `workspace.file.writeBuffer`
+  - 专门用于 `.xlsx`
+  - `readBuffer` 返回 `ArrayBuffer` 或 `Uint8Array`，以及用于冲突检测的版本基线
+  - `writeBuffer` 接收二进制内容和上次读取时的版本基线，若磁盘文件已变化则拒绝覆盖
+
+这里的“版本基线”不要求首期引入复杂 diff，只要求有一个二进制安全的冲突检测令牌。可接受实现包括：
+
+- `mtimeMs + size`
+- `mtimeMs + size + sha256`
+- 其他等价版本令牌
+
+这部分需要在：
+
+- `src/main/index.ts`
+- `src/preload/index.ts`
+
+同时定义和暴露，而不是只在 renderer 侧假定存在。
+
 ## 9. 三类适配器设计
 
 ### 9.1 MarkdownAdapter
@@ -359,6 +392,7 @@
 约束：
 
 - 保存单位为 workbook，而不是 sheet
+- 打开/保存必须走二进制安全的工作区 I/O 契约，而不是 UTF-8 文本接口
 - 首期不承诺复杂协作能力、宏、批注兼容性
 
 ### 9.3 CodeAdapter
@@ -405,6 +439,7 @@
 - `savingByTabId`
 - `saveErrorByTabId`
 - `lastSavedAtByTabId`
+- `diskBaselineByTabId`
 
 这里的 runtime 可以是：
 
@@ -413,6 +448,24 @@
 - CodeMirror editor state / view 句柄
 
 必要时只在 store 中保存可序列化 key，将重对象放在组件层或 service 层缓存。
+
+其中 `diskBaselineByTabId` 用于保存“上次从磁盘成功读取或保存后确认的基线版本”，以支撑后续冲突检测。
+
+建议引入统一抽象：
+
+- `DocumentDiskBaseline`
+  - `kind: 'text' | 'binary'`
+  - 文本文件保存 `textContent`
+  - 二进制文件保存 `versionToken`
+
+含义如下：
+
+- Markdown / code
+  - 基线保留上次读取到的文本内容
+  - 保存时传给 `workspace.file.write(..., expectedContent)`
+- spreadsheet
+  - 基线保留 `readBuffer` 返回的二进制版本令牌
+  - 保存时传给 `workspace.file.writeBuffer(..., expectedVersionToken)`
 
 ### 10.3 WorkbenchUiState
 
@@ -434,26 +487,39 @@
 2. store 标记 tab 为 `dirty`
 3. workbench 调度防抖自动保存
 4. adapter 产出待写入内容
-5. 主进程统一落盘
-6. 成功后清理 `dirty`
-7. 失败则保留 `dirty` 并记录 `saveError`
+5. workbench 读取该 tab 的 `diskBaseline`
+6. 主进程按文件类型走文本或二进制写盘契约，并带上基线做冲突检测
+7. 成功后更新 `diskBaseline` 并清理 `dirty`
+8. 失败则保留 `dirty` 并记录 `saveError`
+
+这里要明确两类保存路径：
+
+- 文本文件
+  - `workspace.file.write(path, content, expectedContent)`
+- 二进制文件
+  - `workspace.file.writeBuffer(path, buffer, expectedVersionToken)`
+
+不允许 spreadsheet 通过文本写盘链路保存。
 
 ### 11.1 Markdown 保存规则
 
 - 默认自动保存
 - 保留显式保存按钮
 - suggestion 接受/拒绝后进入 dirty
+- 保存时必须使用文本基线进行冲突检测
 
 ### 11.2 Code 保存规则
 
 - 默认自动保存
 - 保留显式保存按钮
+- 保存时必须使用文本基线进行冲突检测
 
 ### 11.3 Excel 保存规则
 
 - 采用短防抖自动保存
 - 避免每次击键直接写盘
 - 以 workbook 为统一保存单位
+- 保存时必须使用二进制版本基线进行冲突检测
 
 ## 12. 聊天联动设计
 
@@ -534,8 +600,8 @@
 
 ### 14.3 外部变更
 
-- Markdown 与代码文件：可先做“文件已在外部变化”的告警
-- Excel：首期重点是避免静默覆盖
+- Markdown 与代码文件：基于文本基线与 `expectedContent` 做保存前检测；若磁盘内容已变化，则阻止覆盖并告警
+- Excel：基于二进制版本基线做保存前检测；首期重点是避免静默覆盖
 - 首期不实现复杂 diff 合并
 
 ## 15. 响应式与布局规则
@@ -561,9 +627,13 @@
 - [`src/renderer/components/FileWorkbench.tsx`](/Users/lixinlong/Projects/open-cowork/src/renderer/components/FileWorkbench.tsx)
   - 从 markdown-only 组件升级为统一 workbench 中心区
 - [`src/renderer/store/index.ts`](/Users/lixinlong/Projects/open-cowork/src/renderer/store/index.ts)
-  - 从路径到字符串草稿模型升级为 tab + runtime + shell 状态模型
+  - 从路径到字符串草稿模型升级为 tab + runtime + shell 状态模型，并新增磁盘基线状态
 - [`src/renderer/types/index.ts`](/Users/lixinlong/Projects/open-cowork/src/renderer/types/index.ts)
-  - 扩展 tab、文档种类、上下文类型
+  - 扩展 tab、文档种类、上下文类型与磁盘基线类型
+- [`src/main/index.ts`](/Users/lixinlong/Projects/open-cowork/src/main/index.ts)
+  - 为 `.xlsx` 增加二进制安全的 workspace IPC
+- [`src/preload/index.ts`](/Users/lixinlong/Projects/open-cowork/src/preload/index.ts)
+  - 暴露 `readBuffer` / `writeBuffer` 一类的二进制安全预加载接口
 
 ## 17. 测试策略
 
