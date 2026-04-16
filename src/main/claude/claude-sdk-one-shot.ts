@@ -373,3 +373,13 @@ export async function generateTitleWithClaudeSdk(
     return null;
   }
 }
+
+export async function generateTextWithClaudeSdk(
+  prompt: string,
+  systemPrompt: string,
+  config: AppConfig
+): Promise<string | null> {
+  const result = await runPiAiOneShot(prompt, systemPrompt, config);
+  const text = result.text.trim();
+  return text.length > 0 ? text : null;
+}
