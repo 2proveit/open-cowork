@@ -55,6 +55,8 @@ import {
 } from './session-title-utils';
 import { generateTitleWithClaudeSdk } from '../claude/claude-sdk-one-shot';
 import { buildScheduledTaskTitle } from '../../shared/schedule/task-title';
+import { expandMentionBlocks } from './mention-expansion';
+import { createUniqueAttachmentFilename } from './attachment-filename';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
@@ -474,6 +476,12 @@ export class SessionManager {
     content: ContentBlock[]
   ): Promise<ContentBlock[]> {
     const processedContent: ContentBlock[] = [];
+    const tmpDir = path.join(session.cwd || process.cwd(), '.tmp');
+    const usedAttachmentNames = new Set(
+      fs.existsSync(tmpDir)
+        ? fs.readdirSync(tmpDir).filter((entry) => fs.statSync(path.join(tmpDir, entry)).isFile())
+        : []
+    );
 
     for (const block of content) {
       if (block.type === 'file_attachment') {
@@ -481,7 +489,6 @@ export class SessionManager {
 
         try {
           // Create .tmp directory if it doesn't exist
-          const tmpDir = path.join(session.cwd || process.cwd(), '.tmp');
           if (!fs.existsSync(tmpDir)) {
             fs.mkdirSync(tmpDir, { recursive: true });
             log('[SessionManager] Created .tmp directory:', tmpDir);
@@ -489,9 +496,12 @@ export class SessionManager {
 
           // Get source file path from the file attachment
           const sourcePath = (fileBlock.relativePath || '').trim(); // This is the full path from Electron
-          // IMPORTANT: Use path.basename() to extract only the filename, not the full path
           const fallbackFilename = fileBlock.filename || sourcePath || `attachment-${Date.now()}`;
-          const destFilename = path.basename(fallbackFilename);
+          const destFilename = createUniqueAttachmentFilename({
+            requestedName: fallbackFilename,
+            sourcePath,
+            usedNames: usedAttachmentNames,
+          });
           if (!destFilename) continue;
           const destPath = path.join(tmpDir, destFilename);
           let actualSize = 0;
@@ -617,20 +627,42 @@ export class SessionManager {
 
       try {
         // Use provided content blocks or fall back to simple text
-        let messageContent: ContentBlock[] =
+        const initialContent: ContentBlock[] =
           content && content.length > 0 ? content : [{ type: 'text', text: prompt } as TextContent];
 
-        // Process file attachments - copy to .tmp directory
-        messageContent = await this.processFileAttachments(session, messageContent);
+        const mentionExpansion = await expandMentionBlocks(
+          session.cwd || process.cwd(),
+          initialContent
+        );
+        const messageContent = await this.processFileAttachments(
+          session,
+          mentionExpansion.contentBlocks
+        );
+        let executionMessageContent = messageContent;
+        if (
+          mentionExpansion.executionContentBlocks.length !== mentionExpansion.contentBlocks.length
+        ) {
+          const executionOnlyContent = mentionExpansion.executionContentBlocks.slice(
+            mentionExpansion.contentBlocks.length
+          );
+          const processedExecutionOnlyContent = await this.processFileAttachments(
+            session,
+            executionOnlyContent
+          );
+          executionMessageContent = [...messageContent, ...processedExecutionOnlyContent];
+        }
 
         logCtx(
           '[SessionManager] Final message content types:',
-          messageContent.map((c) => c.type)
+          executionMessageContent.map((c) => c.type)
         );
 
         // Build enhanced prompt with file information
         let enhancedPrompt = prompt;
-        const fileAttachments = messageContent.filter(
+        if (mentionExpansion.enhancedPrompt) {
+          enhancedPrompt = `${enhancedPrompt}\n\n${mentionExpansion.enhancedPrompt}`;
+        }
+        const fileAttachments = executionMessageContent.filter(
           (c) => c.type === 'file_attachment'
         ) as FileAttachmentContent[];
         if (fileAttachments.length > 0) {
@@ -639,7 +671,7 @@ export class SessionManager {
               (f) => `- ${f.filename} (${(f.size / 1024).toFixed(1)} KB) at path: ${f.relativePath}`
             )
             .join('\n');
-          enhancedPrompt = `${prompt}\n\n[Attached files - use Read tool to access them]:\n${fileInfo}`;
+          enhancedPrompt = `${enhancedPrompt}\n\n[Attached files - use Read tool to access them]:\n${fileInfo}`;
           logCtx('[SessionManager] Enhanced prompt with file info:', enhancedPrompt);
         }
 
@@ -649,7 +681,7 @@ export class SessionManager {
           id: uuidv4(),
           sessionId: session.id,
           role: 'user',
-          content: messageContent, // Save full content including images and files
+          content: messageContent,
           timestamp: Date.now(),
         };
         this.saveMessage(userMessage);
@@ -660,7 +692,14 @@ export class SessionManager {
           messageContent.length,
           'content blocks'
         );
-        const messagesForContext = [...existingMessages, userMessage];
+        const executionUserMessage: Message =
+          executionMessageContent === messageContent
+            ? userMessage
+            : {
+                ...userMessage,
+                content: executionMessageContent,
+              };
+        const messagesForContext = [...existingMessages, executionUserMessage];
 
         // Update session model to match current config (may have changed since session creation)
         const currentModel = configStore.get('model');
