@@ -1,6 +1,7 @@
 import type { AppConfig } from '../config/config-store';
 import { generateTextWithClaudeSdk } from '../claude/claude-sdk-one-shot';
 import type {
+  SessionMemoryTextItem,
   SessionMemorySummary,
   WorkspaceMemoryGenerationInput,
   WorkspaceMemoryGenerationResult,
@@ -16,6 +17,11 @@ interface WorkspaceMemoryPayload {
   activeWorkstreams: string[];
   recentSessionSummary: SessionMemorySummary;
 }
+
+const SESSION_TURN_TRUNCATED_MARKER = '[truncated]';
+const MAX_SESSION_TURNS = 12;
+const MAX_SESSION_TURN_CHARS = 1200;
+const MAX_SESSION_TURNS_TOTAL_CHARS = 8000;
 
 function parseStringArray(value: unknown): string[] {
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
@@ -65,7 +71,52 @@ function parsePayload(raw: string): WorkspaceMemoryGenerationResult {
   };
 }
 
+function trimSessionTurnText(text: string, maxChars: number): string {
+  if (maxChars <= 0) {
+    return '';
+  }
+
+  if (text.length <= maxChars) {
+    return text;
+  }
+
+  if (maxChars <= SESSION_TURN_TRUNCATED_MARKER.length) {
+    return SESSION_TURN_TRUNCATED_MARKER.slice(0, maxChars);
+  }
+
+  return `${text.slice(0, maxChars - SESSION_TURN_TRUNCATED_MARKER.length)}${SESSION_TURN_TRUNCATED_MARKER}`;
+}
+
+function boundSessionTurns(sessionTurns: SessionMemoryTextItem[]): SessionMemoryTextItem[] {
+  const normalized = sessionTurns.filter((turn) => turn.text.trim().length > 0);
+  const bounded: SessionMemoryTextItem[] = [];
+  let remainingChars = MAX_SESSION_TURNS_TOTAL_CHARS;
+
+  for (let index = normalized.length - 1; index >= 0; index -= 1) {
+    if (bounded.length >= MAX_SESSION_TURNS || remainingChars <= 0) {
+      break;
+    }
+
+    const turn = normalized[index];
+    const textBudget = Math.min(MAX_SESSION_TURN_CHARS, remainingChars);
+    const boundedText = trimSessionTurnText(turn.text.trim(), textBudget);
+    if (!boundedText) {
+      continue;
+    }
+
+    bounded.push({
+      role: turn.role,
+      text: boundedText,
+    });
+    remainingChars -= boundedText.length;
+  }
+
+  return bounded.reverse();
+}
+
 function buildMemoryGenerationPrompt(input: WorkspaceMemoryGenerationInput): string {
+  const boundedSessionTurns = boundSessionTurns(input.sessionTurns);
+
   return [
     '请根据现有托管记忆和最新会话，保守地输出一个 JSON 对象。',
     '只输出 JSON，不要包含 Markdown 代码块或额外解释。',
@@ -77,7 +128,7 @@ function buildMemoryGenerationPrompt(input: WorkspaceMemoryGenerationInput): str
     JSON.stringify(input.existingManaged, null, 2),
     '',
     'sessionTurns:',
-    JSON.stringify(input.sessionTurns, null, 2),
+    JSON.stringify(boundedSessionTurns, null, 2),
   ].join('\n');
 }
 

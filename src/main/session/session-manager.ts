@@ -65,6 +65,11 @@ interface AgentRunner {
   clearSdkSession?(sessionId: string): void;
 }
 
+interface QueuedPromptItem {
+  prompt: string;
+  content?: ContentBlock[];
+}
+
 export interface WorkspaceMemoryArchiveService {
   archiveSessionToMemory(input: { session: Session; messages: Message[] }): Promise<void>;
 }
@@ -82,8 +87,7 @@ export class SessionManager {
   private mcpManager: MCPManager;
   private pluginRuntimeService?: PluginRuntimeService;
   private activeSessions: Map<string, AbortController> = new Map();
-  private promptQueues: Map<string, Array<{ prompt: string; content?: ContentBlock[] }>> =
-    new Map();
+  private promptQueues: Map<string, QueuedPromptItem[]> = new Map();
   private pendingPermissions: Map<string, (result: PermissionResult) => void> = new Map();
   private pendingSudoPasswords: Map<
     string,
@@ -927,11 +931,45 @@ export class SessionManager {
     this.updateSessionStatus(sessionId, 'idle');
   }
 
+  private async archiveWorkspaceMemoryBeforeDelete(
+    session: Session | null | undefined,
+    sessionId: string,
+    queuedPromptMessages: Message[] = []
+  ): Promise<void> {
+    if (!session?.cwd) {
+      return;
+    }
+
+    try {
+      await this.workspaceMemoryService.archiveSessionToMemory({
+        session,
+        messages: [...this.getMessages(sessionId), ...queuedPromptMessages],
+      });
+    } catch (error) {
+      logError('[SessionManager] Failed to archive workspace memory before session delete:', error);
+    }
+  }
+
+  private snapshotQueuedPromptMessages(sessionId: string): Message[] {
+    const queuedItems = this.promptQueues.get(sessionId) ?? [];
+    const baseTimestamp = Date.now();
+
+    return queuedItems.map((item, index) => ({
+      id: `queued-archive-${sessionId}-${index}`,
+      sessionId,
+      role: 'user',
+      content:
+        item.content && item.content.length > 0
+          ? item.content
+          : ([{ type: 'text', text: item.prompt }] as TextContent[]),
+      timestamp: baseTimestamp + index,
+    }));
+  }
+
   // Delete a session
   async deleteSession(sessionId: string): Promise<void> {
     const session = this.loadSession(sessionId);
-    const wasRunning =
-      this.activeSessions.has(sessionId) || (session ? session.status === 'running' : false);
+    const queuedPromptMessages = this.snapshotQueuedPromptMessages(sessionId);
 
     // Stop if running
     this.stopSession(sessionId);
@@ -948,19 +986,7 @@ export class SessionManager {
       }
     }
 
-    if (!wasRunning && session?.cwd) {
-      try {
-        await this.workspaceMemoryService.archiveSessionToMemory({
-          session,
-          messages: this.getMessages(sessionId),
-        });
-      } catch (error) {
-        logError(
-          '[SessionManager] Failed to archive workspace memory before session delete:',
-          error
-        );
-      }
-    }
+    await this.archiveWorkspaceMemoryBeforeDelete(session, sessionId, queuedPromptMessages);
 
     // Delete from database (messages will be deleted automatically via CASCADE)
     this.db.sessions.delete(sessionId);
@@ -972,8 +998,11 @@ export class SessionManager {
   }
 
   async batchDeleteSessions(sessionIds: string[]): Promise<void> {
-    // Stop sessions and clean up sandboxes first (async, cannot run inside SQLite transaction)
+    // Stop sessions, clean up sandboxes, and archive memory first
+    // (async, cannot run inside SQLite transaction)
     for (const sessionId of sessionIds) {
+      const session = this.loadSession(sessionId);
+      const queuedPromptMessages = this.snapshotQueuedPromptMessages(sessionId);
       this.stopSession(sessionId);
       if (SandboxSync.hasSession(sessionId)) {
         try {
@@ -982,6 +1011,8 @@ export class SessionManager {
           logError('[SessionManager] Failed to cleanup sandbox during batch delete:', error);
         }
       }
+
+      await this.archiveWorkspaceMemoryBeforeDelete(session, sessionId, queuedPromptMessages);
     }
 
     // Perform all SQLite deletions atomically

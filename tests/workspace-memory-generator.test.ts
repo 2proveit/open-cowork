@@ -142,4 +142,38 @@ describe('model-backed workspace memory generator', () => {
       })
     ).rejects.toThrow('Empty workspace memory payload');
   });
+
+  it('truncates long session history before sending it to the one-shot helper', async () => {
+    mocks.generateTextWithClaudeSdk.mockResolvedValue(
+      JSON.stringify({
+        userProfile: ['Prefers concise answers.'],
+        habitsAndPreferences: ['直接进入实现。'],
+        activeWorkstreams: ['可能正在接入工作区 MEMORY 功能。'],
+        recentSessionSummary: {
+          timestamp: '2026-04-15 18:18',
+          title: '接入 MEMORY',
+          summary: '定义了托管区块和注入策略。',
+          signals: ['删除会话归档'],
+        },
+      })
+    );
+
+    const generator = createModelBackedWorkspaceMemoryGenerator(() => config);
+    await generator.generate({
+      existingManaged: {
+        userProfile: [],
+        habitsAndPreferences: [],
+        activeWorkstreams: [],
+        recentSessionSummaries: [],
+      },
+      sessionTurns: Array.from({ length: 24 }, (_, index) => ({
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        text: `turn-${index}-marker ` + 'x'.repeat(1200),
+      })),
+    });
+
+    const prompt = mocks.generateTextWithClaudeSdk.mock.calls.at(-1)?.[0];
+    expect(prompt).toContain('turn-23-marker');
+    expect(prompt).not.toContain('turn-0-marker');
+  });
 });

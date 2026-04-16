@@ -51,6 +51,79 @@ describe('workspace-memory markdown helpers', () => {
     expect(rendered).not.toContain('old block');
   });
 
+  it('preserves handwritten content even without a Manual Notes heading', () => {
+    const current = [
+      '# MEMORY',
+      '',
+      '## Working Agreements',
+      'Keep custom notes.',
+      '',
+      '## Open Questions',
+      'Do not drop this section.',
+      '',
+    ].join('\n');
+
+    const rendered = renderMemoryMarkdown(current, createManagedState());
+
+    expect(rendered).toContain('## Working Agreements');
+    expect(rendered).toContain('Keep custom notes.');
+    expect(rendered).toContain('## Open Questions');
+    expect(rendered).toContain('Do not drop this section.');
+  });
+
+  it('preserves manual sections after an existing managed block', () => {
+    const current = [
+      '# MEMORY',
+      '',
+      '## Manual Notes',
+      'Keep this line.',
+      '',
+      '<!-- COWORK:MANAGED:START -->',
+      '### User Profile',
+      '- old profile',
+      '',
+      '### Habits And Preferences',
+      '- (empty)',
+      '',
+      '### Active Workstreams',
+      '- (empty)',
+      '',
+      '### Recent Session Summaries',
+      '- (empty)',
+      '<!-- COWORK:MANAGED:END -->',
+      '',
+      '## Extra Notes',
+      'Keep trailing sections too.',
+      '',
+    ].join('\n');
+
+    const rendered = renderMemoryMarkdown(current, createManagedState());
+
+    expect(rendered).toContain('Keep this line.');
+    expect(rendered).toContain('## Extra Notes');
+    expect(rendered).toContain('Keep trailing sections too.');
+  });
+
+  it('only strips a top-level Manual Notes heading from handwritten content', () => {
+    const current = [
+      '# MEMORY',
+      '',
+      '## Working Agreements',
+      'Keep this section.',
+      '',
+      '## Manual Notes',
+      'This later heading is user-authored content.',
+      '',
+    ].join('\n');
+
+    const rendered = renderMemoryMarkdown(current, createManagedState());
+
+    expect(rendered).toContain('## Working Agreements');
+    expect(rendered).toContain('Keep this section.');
+    expect(rendered).toContain('## Manual Notes');
+    expect(rendered).toContain('This later heading is user-authored content.');
+  });
+
   it('parses managed sections into structured state', () => {
     const parsed = parseMemoryMarkdown(renderMemoryMarkdown(undefined, createManagedState()));
     expect(parsed.managed.userProfile).toEqual([
