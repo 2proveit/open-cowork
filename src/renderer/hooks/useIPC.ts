@@ -9,9 +9,9 @@ import type {
   Session,
   Message,
   TraceStep,
-  ContentBlock,
 } from '../types';
 import i18n from '../i18n/config';
+import { normalizeSessionPromptInput, type SessionPromptInput } from './session-prompt';
 
 // Check if running in Electron
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
@@ -400,19 +400,11 @@ export function useIPC() {
 
   // Start a new session
   const startSession = useCallback(
-    async (title: string, promptOrContent: string | ContentBlock[], cwd?: string) => {
+    async (title: string, promptOrContent: SessionPromptInput, cwd?: string) => {
       setLoading(true);
       console.log('[useIPC] Starting session:', title);
 
-      // Normalize input to ContentBlock array
-      const content: ContentBlock[] =
-        typeof promptOrContent === 'string'
-          ? [{ type: 'text', text: promptOrContent }]
-          : promptOrContent;
-
-      // Extract text for legacy backend and session title (if needed)
-      const textContent = content.find((block) => block.type === 'text');
-      const prompt = textContent && 'text' in textContent ? textContent.text : '';
+      const { prompt, content } = normalizeSessionPromptInput(promptOrContent);
 
       // Browser mode mock
       if (!isElectron) {
@@ -528,19 +520,11 @@ export function useIPC() {
 
   // Continue an existing session
   const continueSession = useCallback(
-    async (sessionId: string, promptOrContent: string | ContentBlock[]) => {
+    async (sessionId: string, promptOrContent: SessionPromptInput, cwd?: string) => {
       setLoading(true);
       console.log('[useIPC] Continuing session:', sessionId);
 
-      // Normalize input to ContentBlock array
-      const content: ContentBlock[] =
-        typeof promptOrContent === 'string'
-          ? [{ type: 'text', text: promptOrContent }]
-          : promptOrContent;
-
-      // Extract text for legacy backend (if needed)
-      const textContent = content.find((block) => block.type === 'text');
-      const prompt = textContent && 'text' in textContent ? textContent.text : '';
+      const { prompt, content } = normalizeSessionPromptInput(promptOrContent);
 
       // Immediately add user message to UI (for both modes)
       const store = useAppStore.getState();
@@ -563,6 +547,9 @@ export function useIPC() {
 
       // Browser mode mock
       if (!isElectron) {
+        if (cwd) {
+          updateSession(sessionId, { cwd });
+        }
         updateSession(sessionId, { status: 'running' });
         const mockStepId = `mock-step-${Date.now()}`;
         activateNextTurn(sessionId, mockStepId);
@@ -599,6 +586,7 @@ export function useIPC() {
             sessionId,
             prompt,
             content, // Send full content blocks including images
+            cwd,
           },
         });
         // Loading will be reset when we receive session.status event

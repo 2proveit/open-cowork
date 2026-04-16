@@ -14,7 +14,7 @@
  */
 import { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, Tray } from 'electron';
 import chokidar, { type FSWatcher } from 'chokidar';
-import { join, resolve, dirname, isAbsolute, basename } from 'path';
+import { join, resolve, dirname, isAbsolute, basename, relative } from 'path';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
 import { config } from 'dotenv';
@@ -84,9 +84,17 @@ import {
   isDevLogsEnabled,
 } from './utils/logger';
 import { listRecentWorkspaceFiles } from './utils/recent-workspace-files';
+import {
+  createWorkspaceMentionIndex,
+  type WorkspaceMentionIndex,
+} from './utils/workspace-mention-index';
 import { buildDiagnosticsSummary } from './utils/diagnostics-summary';
 import { isPathWithinRoot } from './tools/path-containment';
 import { listWorkspaceChildren } from './workspace-files';
+import {
+  isWorkspaceSearchExcludedPath,
+  type WorkspaceFileSearchResult,
+} from '../shared/workspace-file-search';
 
 // Current workspace path for the app shell and new-session defaults
 let currentWorkingDir: string | null = null;
@@ -116,6 +124,11 @@ let skillsManager: SkillsManager | null = null;
 let pluginRuntimeService: PluginRuntimeService | null = null;
 let scheduledTaskManager: ScheduledTaskManager | null = null;
 let workspaceWatcher: FSWatcher | null = null;
+let workspaceMentionIndex: WorkspaceMentionIndex | null = null;
+let workspaceMentionIndexRoot: string | null = null;
+let workspaceMentionIndexPromise: Promise<WorkspaceMentionIndex> | null = null;
+let workspaceMentionIndexGeneration = 0;
+const WORKSPACE_FILE_SEARCH_MAX_RESULTS = 50;
 
 function sanitizeDiagnosticBaseUrl(value: string | undefined): string | null {
   if (!value) {
@@ -558,6 +571,7 @@ function createWindow() {
 function applyCurrentWorkingDir(nextPath: string | null): void {
   currentWorkingDir = nextPath;
   remoteManager.setDefaultWorkingDirectory(nextPath || undefined);
+  invalidateWorkspaceMentionIndex();
 }
 
 function stopWorkspaceWatcher(): void {
@@ -574,9 +588,16 @@ function startWorkspaceWatcher(): void {
   }
 
   try {
-    workspaceWatcher = chokidar.watch(currentWorkingDir, {
+    const workspaceRoot = currentWorkingDir;
+    workspaceWatcher = chokidar.watch(workspaceRoot, {
       ignoreInitial: true,
-      depth: 8,
+      ignored: (watchedPath) => {
+        const relativePath = relative(workspaceRoot, watchedPath);
+        if (!relativePath || relativePath.startsWith('..')) {
+          return false;
+        }
+        return isWorkspaceSearchExcludedPath(relativePath);
+      },
       awaitWriteFinish: {
         stabilityThreshold: 200,
         pollInterval: 100,
@@ -592,6 +613,7 @@ function startWorkspaceWatcher(): void {
       ) {
         return;
       }
+      invalidateWorkspaceMentionIndex();
       sendToRenderer({
         type: 'workspace.tree.changed',
         payload: {
@@ -679,6 +701,51 @@ function resolveWorkspaceFile(filePath: string): string {
   }
 
   return resolvedPath;
+}
+
+function invalidateWorkspaceMentionIndex(): void {
+  workspaceMentionIndexGeneration += 1;
+  workspaceMentionIndex = null;
+  workspaceMentionIndexRoot = null;
+  workspaceMentionIndexPromise = null;
+}
+
+async function getWorkspaceMentionIndex(rootPath?: string): Promise<WorkspaceMentionIndex> {
+  const resolvedRoot = rootPath ? resolve(rootPath) : currentWorkingDir;
+  if (!resolvedRoot) {
+    throw new Error('No workspace selected');
+  }
+
+  if (workspaceMentionIndex && workspaceMentionIndexRoot === resolvedRoot) {
+    return workspaceMentionIndex;
+  }
+
+  if (workspaceMentionIndexPromise && workspaceMentionIndexRoot === resolvedRoot) {
+    return workspaceMentionIndexPromise;
+  }
+
+  const buildRoot = resolvedRoot;
+  const buildGeneration = workspaceMentionIndexGeneration;
+  workspaceMentionIndexRoot = buildRoot;
+  const buildPromise = createWorkspaceMentionIndex(buildRoot)
+    .then((index) => {
+      if (
+        workspaceMentionIndexPromise === buildPromise &&
+        workspaceMentionIndexRoot === buildRoot &&
+        workspaceMentionIndexGeneration === buildGeneration
+      ) {
+        workspaceMentionIndex = index;
+      }
+      return index;
+    })
+    .finally(() => {
+      if (workspaceMentionIndexPromise === buildPromise) {
+        workspaceMentionIndexPromise = null;
+      }
+    });
+  workspaceMentionIndexPromise = buildPromise;
+
+  return buildPromise;
 }
 
 /**
@@ -2110,6 +2177,14 @@ ipcMain.handle('workspace.tree.get', async (_event, targetPath?: string) => {
   return listWorkspaceChildren(dirPath);
 });
 
+ipcMain.handle('workspace.files.search', async (_event, query: string, workspacePath?: string) => {
+  const index = await getWorkspaceMentionIndex(workspacePath);
+  const results: WorkspaceFileSearchResult[] = index
+    .search(query)
+    .slice(0, WORKSPACE_FILE_SEARCH_MAX_RESULTS);
+  return results;
+});
+
 ipcMain.handle('workspace.file.read', async (_event, filePath: string) => {
   const resolvedPath = resolveWorkspaceFile(filePath);
   const content = await fs.promises.readFile(resolvedPath, 'utf-8');
@@ -2687,6 +2762,18 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
       );
 
     case 'session.continue':
+      if (event.payload.cwd) {
+        const result = await setWorkingDir(event.payload.cwd, event.payload.sessionId);
+        if (!result.success) {
+          sendToRenderer({
+            type: 'error',
+            payload: {
+              message: result.error || 'Failed to update working directory',
+            },
+          });
+          return null;
+        }
+      }
       return sm.continueSession(
         event.payload.sessionId,
         event.payload.prompt,
